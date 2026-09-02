@@ -1,0 +1,19 @@
+# Introduction {#sec-introduction}
+
+This initial edition keeps the reusable authoring demonstration while the subject-specific scope and chapter structure are developed in later revisions.
+
+## Content-first authoring
+
+Write the mathematical narrative in `.qmd` files using Markdown, LaTeX, and Quarto cross-references. This keeps each chapter useful in source form and makes the rendered book a presentation of the content rather than its only usable representation.
+
+Interactive elements belong in a supporting role. Put reusable implementation code under `widgets/`, and keep the assumptions and conclusions needed by the reader in the chapter itself. If a widget is removed or fails to load, the surrounding exposition should still make sense.
+
+## A reusable chapter pattern
+
+A typical chapter can proceed in three layers:
+
+1. state the concept in prose and notation;
+2. connect definitions, equations, figures, and sources with cross-references; and
+3. optionally add a small interactive panel that illustrates one relationship.
+
+The next chapter is intentionally minimal. It demonstrates this pattern without committing the template to any particular field.

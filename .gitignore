@@ -1,0 +1,54 @@
+# Quarto render output and local project state
+/.quarto/
+/_site/
+/_book/
+/_freeze/
+
+# Notebook, language, and package-manager caches
+**/.ipynb_checkpoints/
+**/*.quarto_ipynb
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.sass-cache/
+node_modules/
+.venv/
+venv/
+.Rproj.user/
+.Rhistory
+.RData
+
+# Local environment files (keep a documented .env.example if one is added)
+.env
+.env.local
+.env.*.local
+
+# Editor temporary files and local workspace settings
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.#*
+\#*#
+
+# Operating-system metadata
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+
+# LaTeX auxiliary files; authored .tex and bibliography sources remain tracked
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.run.xml
+*.synctex.gz
+*.toc

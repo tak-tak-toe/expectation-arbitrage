@@ -1,0 +1,71 @@
+# Template demonstration {#sec-template-demo}
+
+This chapter is a functional check of the template. Its example is deliberately elementary so that the focus remains on authoring and layout conventions.
+
+:::: {.concept-layout}
+::: {.concept-main}
+## Mathematical content
+
+::: {#def-parameterized-function name="Parameterized function"}
+A **parameterized function** is a family of functions whose behavior depends on one or more explicitly identified parameters. The parameter is held fixed when the function is evaluated with respect to its input.
+:::
+
+For a minimal example of @def-parameterized-function, consider
+
+$$
+f(x;a) = a x^2.
+$$ {#eq-demo-function}
+
+In @eq-demo-function, $x$ is the input and $a$ is a parameter. Its sign controls whether the curve opens upward or downward, while its magnitude controls the vertical scale. This statement is the complete mathematical point of the example; the panel only makes the relationship easier to inspect.
+
+The graph in @fig-demo-curve responds to the slider. It is produced by a local Observable JS cell, while the small renderer lives separately under `widgets/demo/`. This separation follows the broader literate-programming idea that exposition and computation should support one another [@knuth1984literate].
+
+## Reuse this pattern
+
+Copy the semantic structure of this section when an explanation benefits from a companion visualization. Keep the `.concept-main` block self-contained, place optional controls in `.interactive-panel`, and give any plot a `fig-` label and caption so it can be referenced from the text.
+:::
+
+::: {.interactive-panel aria-labelledby="interactive-heading"}
+## Explore the parameter {#interactive-heading}
+
+Move the slider to change $a$ in @eq-demo-function. The axes remain fixed so that changes of sign and scale are directly comparable.
+
+```{ojs}
+//| echo: false
+import { renderLineChart } from "../widgets/demo/widget.js"
+```
+
+```{ojs}
+//| echo: false
+viewof a = Inputs.range([-2, 2], {
+  label: "Coefficient a",
+  value: 1,
+  step: 0.1
+})
+```
+
+```{ojs}
+//| label: fig-demo-curve
+//| fig-cap: "The graph of $f(x;a)=ax^2$ for the selected value of $a$."
+//| echo: false
+renderLineChart({
+  points: Array.from({ length: 161 }, (_, index) => {
+    const x = -2 + index / 40;
+    return { x, y: a * x * x };
+  }),
+  xDomain: [-2, 2],
+  yDomain: [-8, 8],
+  xLabel: "x",
+  yLabel: "f(x; a)",
+  accessibleLabel: `Graph of f(x; a) = a x squared with a = ${a.toFixed(1)}`
+})
+```
+
+The panel is sticky on wider screens and moves below the main text on smaller screens. No server or framework is required.
+:::
+::::
+
+## References {.unnumbered}
+
+::: {#refs}
+:::

@@ -1,0 +1,46 @@
+project:
+  type: book
+  output-dir: _site
+  resources:
+    - widgets/**
+
+book:
+  title: "Expectation Arbitrage"
+  subtitle: ""
+  author: "tak-tak-toe"
+  description: "Expectation Arbitrageに関するノート"
+  site-url: "https://tak-tak-toe.github.io/expectation-arbitrage/"
+  repo-url: "https://github.com/tak-tak-toe/expectation-arbitrage"
+  repo-branch: main
+  repo-actions: [source, issue]
+  page-navigation: true
+  reader-mode: true
+  search: true
+  chapters:
+    - index.qmd
+    - chapters/00-introduction.qmd
+    - chapters/01-template-demo.qmd
+
+bibliography: references.bib
+link-citations: true
+
+crossref:
+  chapters: true
+
+format:
+  html:
+    theme:
+      - cosmo
+      - styles/textbook.scss
+    html-math-method: mathjax
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-copy: true
+    code-overflow: wrap
+    anchor-sections: true
+    grid:
+      sidebar-width: 250px
+      body-width: 1000px
+      margin-width: 230px
+      gutter-width: 1.5rem

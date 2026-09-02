@@ -1,0 +1,16 @@
+# Expectation Arbitrage {.unnumbered}
+
+This is the initial publication of the Expectation Arbitrage notes. The detailed scope and chapter structure can be refined in later revisions.
+
+The notes use ordinary Quarto Markdown so that explanations, equations, definitions, figures, and citations remain readable before any interactive component is added. Interactive panels are optional and support the written explanation.
+
+## What is included
+
+- a numbered Quarto book with navigation, search, and a table of contents;
+- LaTeX mathematics and Quarto cross-references;
+- theorem-style definitions, captioned figures, and a bibliography;
+- a responsive 50/50 `concept-layout` for pairing content with a sticky interactive panel;
+- a reader-mode control that hides the left chapter navigation and right page table of contents; and
+- one dependency-free Observable JS demonstration.
+
+Start with @sec-introduction for the authoring conventions, then open @sec-template-demo to verify each included feature.

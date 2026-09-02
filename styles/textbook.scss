@@ -1,0 +1,173 @@
+/*-- scss:defaults --*/
+$font-family-sans-serif: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+$font-family-serif: Georgia, "Times New Roman", serif;
+$font-family-base: $font-family-serif;
+$headings-font-family: $font-family-sans-serif;
+$body-color: #20252b;
+$link-color: #245f83;
+$font-size-root: 16px;
+$line-height-base: 1.62;
+$border-radius: 0.3rem;
+
+/*-- scss:rules --*/
+:root {
+  --textbook-panel-bg: #f5f8fa;
+  --textbook-panel-border: #ccd8df;
+  --textbook-grid-line: #dce4e8;
+  --textbook-axis-line: #5d6870;
+  --textbook-curve: #236a8d;
+}
+
+body {
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  letter-spacing: -0.015em;
+}
+
+.content p,
+.content li {
+  hanging-punctuation: first last;
+}
+
+.content :is(p, li) > code,
+.content dd > code {
+  font-size: 0.9em;
+}
+
+.math.display {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.concept-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(1.25rem, 2.25vw, 2rem);
+  align-items: start;
+  margin-block: 1.5rem 2.5rem;
+}
+
+.concept-main,
+.interactive-panel {
+  min-width: 0;
+}
+
+.concept-main > :first-child,
+.interactive-panel > :first-child {
+  margin-top: 0;
+}
+
+.interactive-panel {
+  position: sticky;
+  top: calc(var(--quarto-header-height, 0px) + 1rem);
+  max-height: calc(100vh - var(--quarto-header-height, 0px) - 2rem);
+  overflow-y: auto;
+  padding: 1.1rem 1.15rem;
+  border: 1px solid var(--textbook-panel-border);
+  border-radius: 0.45rem;
+  background: var(--textbook-panel-bg);
+}
+
+.interactive-panel h2 {
+  font-size: 1.05rem;
+  line-height: 1.3;
+  margin-bottom: 0.7rem;
+}
+
+.interactive-panel p,
+.interactive-panel label,
+.interactive-panel figcaption {
+  font-family: $font-family-sans-serif;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.interactive-panel form,
+.interactive-panel input[type="range"] {
+  width: 100%;
+}
+
+.interactive-panel figure {
+  margin: 1rem 0;
+}
+
+.demo-line-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  color: var(--body-color, #20252b);
+}
+
+.demo-line-chart .chart-background {
+  fill: #ffffff;
+  stroke: var(--textbook-panel-border);
+}
+
+.demo-line-chart .chart-grid line {
+  stroke: var(--textbook-grid-line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.demo-line-chart .chart-axes line {
+  stroke: var(--textbook-axis-line);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.demo-line-chart .chart-line {
+  fill: none;
+  stroke: var(--textbook-curve);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.demo-line-chart .chart-tick-label,
+.demo-line-chart .chart-axis-label {
+  fill: currentColor;
+  font-family: $font-family-sans-serif;
+  font-size: 13px;
+}
+
+.demo-line-chart .chart-axis-label {
+  font-weight: 600;
+}
+
+.figure-caption {
+  color: #56616a;
+}
+
+@media (max-width: 991.98px) {
+  .concept-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+  }
+
+  .interactive-panel {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+@media print {
+  .concept-layout {
+    display: block;
+  }
+
+  .interactive-panel {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    margin-top: 1.5rem;
+    break-inside: avoid;
+  }
+}
