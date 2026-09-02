@@ -6,11 +6,11 @@ project:
 
 book:
   title: "Expectation Arbitrage"
-  subtitle: ""
+  subtitle: "期待値曲線を踏まえたタスクポートフォリオ最適化"
   author: "tak-tak-toe"
-  description: "Expectation Arbitrageに関するノート"
+  description: ""
   site-url: "https://tak-tak-toe.github.io/expectation-arbitrage/"
-  repo-url: "https://github.com/tak-tak-toe/expectation-arbitrage"
+  repo-url: ""
   repo-branch: main
   repo-actions: [source, issue]
   page-navigation: true
