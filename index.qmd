@@ -1,16 +1,90 @@
 # Expectation Arbitrage {.unnumbered}
 
-This is the initial publication of the Expectation Arbitrage notes. The detailed scope and chapter structure can be refined in later revisions.
+## はじめに
 
-The notes use ordinary Quarto Markdown so that explanations, equations, definitions, figures, and citations remain readable before any interactive component is added. Interactive panels are optional and support the written explanation.
+マネージャーのレビューを、いかに乗り切るか。考えたことはあるだろうか。
 
-## What is included
+コンサルタントとして働いていると、
 
-- a numbered Quarto book with navigation, search, and a table of contents;
-- LaTeX mathematics and Quarto cross-references;
-- theorem-style definitions, captioned figures, and a bibliography;
-- a responsive 50/50 `concept-layout` for pairing content with a sticky interactive panel;
-- a reader-mode control that hides the left chapter navigation and right page table of contents; and
-- one dependency-free Observable JS demonstration.
+> 「もう少し自分で考えてから持ってきて」
 
-Start with @sec-introduction for the authoring conventions, then open @sec-template-demo to verify each included feature.
+と言われることもあれば、
+
+> 「そこまで時間をかける前に、もっと早く相談して」
+
+と言われることもある。
+
+では、結局いつまで自分で考え、いつレビューに持っていけばよいのだろうか。
+
+経験を積んだコンサルタントなら、マネージャーごとの癖や過去の失敗から、この判断を経験則として身につけているかもしれない。
+
+しかし、われわれはデータドリブンな時代を生きるビジネスパーソンである。
+
+**経験と勘で乗り切っているものを、あえて数理最適化してみよう。**
+
+これが **Expectation Arbitrage** の出発点である。
+
+![「自分で考えろvs早く相談しろ」の概念図](images/expectation-curve-original.png){fig-alt="成果物の品質、上司の期待値、相談タイミングの関係を示した手書き図"}
+
+*出典：本山裕輔「『自分で考えろvs早く相談しろ』の攻略法」, note, 2025年4月4日。*[^1]
+
+この図が示す問題は単純である。
+
+成果物は、時間をかければかけるほど良くなる。
+しかし、その改善幅は次第に小さくなる。
+
+一方で、成果物を待つマネージャーは、
+
+> 「これだけ待っているのだから、それなりのものが出てくるだろう」
+
+と考える。
+
+つまり、**成果物の品質が伸びる速さと、マネージャーの期待値が伸びる速さは一致しない。**
+
+早すぎれば「もう少し考えて」と言われる。
+遅すぎれば「もっと早く相談して」と言われる。
+
+ならば、その間に何らかの「ちょうどよい領域」があるはずである。
+
+## 限られた時間を、どこに使うべきか
+
+さらに、現実のコンサルタントは一つの成果物だけを作っているわけではない。
+
+複数のプロジェクト、複数の成果物、複数のマネージャーが、有限の労働時間を取り合っている。
+
+ある資料をもう1時間磨くということは、別の資料にはその1時間を使わないということである。
+
+ここで、いくつかの問いが生まれる。
+
+- 限られた時間で、成果物全体の品質を最大化するにはどう時間を配ればよいか。
+- 限られた時間で、各マネージャーから得られる評価を最大化するにはどうすればよいか。
+- 品質を最大化する時間配分と、評価を最大化する時間配分は一致するのか。
+- いつ自分で考え続け、いつレビューを依頼するのが合理的なのか。
+
+これらを、経験則ではなく最適化問題として扱ってみる。
+
+## なぜ Arbitrage なのか
+
+名前は少々悪そうだが、目的は「仕事をせずにマネージャーを騙して高評価を得る方法」を探すことではない。
+
+適切なタイミングでレビューできれば、
+
+- スタッフは不要な作り込みを減らせる。
+- マネージャーは手遅れになる前に方向修正できる。
+- 手戻りが減り、成果物の品質も上がる。
+- 最終的にはクライアントへの提供価値も高まる。
+
+かもしれない。
+
+スタッフは余計に働かず、
+マネージャーは余計に苛立たず、
+成果物の品質は上がり、
+クライアントも満足する。
+
+**そんな都合のよい arbitrage opportunity は、本当に存在するのだろうか。**
+
+Expectation Arbitrage では、この問いを数理最適化とシミュレーションを使って考えていく。
+
+## References
+
+[^1]: 本山裕輔「『自分で考えろvs早く相談しろ』の攻略法」, note, 2025年4月4日。
