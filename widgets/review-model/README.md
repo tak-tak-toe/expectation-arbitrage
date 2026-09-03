@@ -35,9 +35,12 @@ import { renderWorkerModel, renderManagerModel } from "../widgets/review-model/w
 
 ## ファイルと変更箇所
 
-- `model.mjs`：品質、レビュー効果、期待品質、評価式の純粋関数。
+- `model.js`：品質、レビュー効果、期待品質、評価式の純粋関数。
 - `widget.js`：スライダー、既定値、図、凡例、補助説明。
 - `model.test.mjs`：連続性・限界改善量・品質の比較・期待値の平行移動などのテスト。
+- `package.json`：Node.jsのテストで `.js` をES moduleとして扱うための指定。追加パッケージは不要。
+
+QuartoのOJS依存解析に合わせ、ブラウザへ読み込むモジュールの拡張子は `.js` に統一します。
 
 `resources: widgets/**` により、これらのローカルモジュールは公開先へコピーされます。図の数式・仮定は JavaScript を使わなくても読めるよう、章本文にも記載してください。
 

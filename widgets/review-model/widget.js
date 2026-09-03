@@ -8,7 +8,7 @@ import {
   baselineMarginalQuality,
   reviewedMarginalQuality,
   managerExpectation,
-} from "./model.mjs";
+} from "./model.js";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 let nextWidgetId = 0;

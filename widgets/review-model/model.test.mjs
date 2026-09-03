@@ -11,7 +11,7 @@ import {
   reviewedMarginalQuality,
   managerExpectation,
   reviewEvaluation,
-} from "./model.mjs";
+} from "./model.js";
 
 function close(actual, expected, tolerance = 1e-10) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} is not close to ${expected}`);
