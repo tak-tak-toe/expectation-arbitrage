@@ -50,15 +50,17 @@ test("reviewed quality matches the defining expression and is continuous at revi
   }
 });
 
-test("review does not reduce quality at equal total work across the slider domain", () => {
+test("review does not reduce quality at equal total work across display horizons", () => {
   for (const qbar of [20, 50, 80, 100]) {
     for (const k of [0.05, 0.25, 1]) {
       for (const h of [0.5, 4, 15]) {
         const parameters = { qbar, k, h };
-        for (let before = 0.5; before < 25; before += 0.5) {
-          const after = 25 - before;
-          assert.ok(reviewedQuality(before, after, parameters) + 1e-10
-            >= baselineQuality(25, parameters));
+        for (const totalWork of [5, 25, 50]) {
+          for (let before = 0.5; before < totalWork; before += 0.5) {
+            const after = totalWork - before;
+            assert.ok(reviewedQuality(before, after, parameters) + 1e-10
+              >= baselineQuality(totalWork, parameters));
+          }
         }
       }
     }
@@ -78,10 +80,14 @@ test("review raises marginal improvement, not the instantaneous quality level", 
 test("quality may exceed 100; qbar at most 50 cannot attain 100 in finite sample times", () => {
   assert.ok(reviewedQuality(6, 19) > 100);
   for (const qbar of [20, 50]) {
-    for (const before of [0.5, 6, 12.5, 24.5]) {
-      const value = reviewedQuality(before, 25 - before, { qbar, k: 0.25, h: 4 });
-      assert.ok(value < 2 * qbar);
-      assert.ok(value < 100);
+    for (const totalWork of [5, 25, 50]) {
+      for (const fraction of [0.1, 0.5, 0.9]) {
+        const before = totalWork * fraction;
+        const value = reviewedQuality(before, totalWork - before,
+          { qbar, k: 0.25, h: 4 });
+        assert.ok(value < 2 * qbar);
+        assert.ok(value < 100);
+      }
     }
   }
 });

@@ -1,5 +1,4 @@
 import {
-  TOTAL_TIME,
   MINIMUM_QUALITY,
   DEFAULT_WORKER,
   baselineQuality,
@@ -11,6 +10,7 @@ import {
 } from "./model.js";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const DEFAULT_DISPLAY_HORIZON = 25;
 let nextWidgetId = 0;
 
 // Every selector is scoped to this widget; the surrounding book owns typography.
@@ -110,6 +110,13 @@ function addSlider(panel, { key, label, min, max, step, value, decimals = 1 }, o
   });
   container.append(labelElement, input);
   panel.controls.append(container);
+  return { input, output, decimals };
+}
+
+function syncSlider(slider, { value, maximum }) {
+  if (maximum !== undefined) slider.input.max = String(maximum);
+  slider.input.value = String(value);
+  slider.output.value = format(slider.input.valueAsNumber, slider.decimals);
 }
 
 function addLegend(panel, entries) {
@@ -127,14 +134,32 @@ function setSummary(panel, rows) {
     htmlElement("p", warning ? "rm-warning" : undefined, text)));
 }
 
-function chartFrame(panel, { width, maximum, title, description, xLabel, yLabel }) {
+function horizontalTicks(horizon, innerWidth) {
+  const rawStep = horizon / 5;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalized = rawStep / magnitude;
+  const factor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  const step = factor * magnitude;
+  const ticks = [];
+  for (let tick = 0; tick <= horizon + step * 1e-9; tick += step) {
+    ticks.push(Number(tick.toPrecision(12)));
+  }
+  if (ticks.at(-1) !== horizon) {
+    const gapPixels = (horizon - ticks.at(-1)) / horizon * innerWidth;
+    if (gapPixels < 28 && ticks.length > 1) ticks.pop();
+    ticks.push(horizon);
+  }
+  return ticks;
+}
+
+function chartFrame(panel, { width, horizon, maximum, title, description, xLabel, yLabel }) {
   // Use the measured container width so 11px tick labels remain readable in a
   // narrow column, rather than shrinking a fixed desktop-size SVG viewBox.
   const height = width < 360 ? 252 : 272;
   const margin = { top: 31, right: 16, bottom: 49, left: 40 };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
-  const xScale = value => margin.left + value / TOTAL_TIME * innerWidth;
+  const xScale = value => margin.left + value / horizon * innerWidth;
   const yScale = value => margin.top + (1 - value / maximum) * innerHeight;
   const svg = svgElement("svg", {
     viewBox: `0 0 ${width} ${height}`,
@@ -146,29 +171,29 @@ function chartFrame(panel, { width, maximum, title, description, xLabel, yLabel 
   const descriptionNode = svgElement("desc", { id: `${panel.id}-desc` });
   descriptionNode.textContent = description;
   svg.append(titleNode, descriptionNode);
-  for (const tick of [0, 5, 10, 15, 20, 25]) {
+  for (const tick of horizontalTicks(horizon, innerWidth)) {
     svg.append(svgElement("line", { x1: xScale(tick), x2: xScale(tick),
       y1: margin.top, y2: yScale(0), class: "rm-grid" }));
     svgText(svg, tick, { x: xScale(tick), y: yScale(0) + 19, "text-anchor": "middle" });
   }
   for (let index = 0; index <= 4; index++) {
     const tick = maximum * index / 4;
-    svg.append(svgElement("line", { x1: xScale(0), x2: xScale(TOTAL_TIME),
+    svg.append(svgElement("line", { x1: xScale(0), x2: xScale(horizon),
       y1: yScale(tick), y2: yScale(tick), class: "rm-grid" }));
     svgText(svg, format(tick), { x: margin.left - 7, y: yScale(tick) + 4, "text-anchor": "end" });
   }
-  svg.append(svgElement("path", { d: `M${xScale(0)},${yScale(maximum)} V${yScale(0)} H${xScale(TOTAL_TIME)}`,
+  svg.append(svgElement("path", { d: `M${xScale(0)},${yScale(maximum)} V${yScale(0)} H${xScale(horizon)}`,
     fill: "none", class: "rm-axis" }));
-  svg.append(svgElement("line", { x1: xScale(0), x2: xScale(TOTAL_TIME),
+  svg.append(svgElement("line", { x1: xScale(0), x2: xScale(horizon),
     y1: yScale(MINIMUM_QUALITY), y2: yScale(MINIMUM_QUALITY), class: "rm-threshold" }));
   svgText(svg, yLabel, { x: margin.left, y: 16, class: "rm-axis-title" });
   svgText(svg, xLabel, { x: width / 2, y: height - 8, "text-anchor": "middle", class: "rm-axis-title" });
   return { svg, xScale, yScale, maximum };
 }
 
-function addCurve(frame, quality, className) {
+function addCurve(frame, horizon, quality, className) {
   const data = Array.from({ length: 201 }, (_, index) => {
-    const work = TOTAL_TIME * index / 200;
+    const work = horizon * index / 200;
     return `${index === 0 ? "M" : "L"}${frame.xScale(work).toFixed(2)},${frame.yScale(quality(work)).toFixed(2)}`;
   }).join(" ");
   frame.svg.append(svgElement("path", { d: data, class: `rm-line ${className}` }));
@@ -217,36 +242,56 @@ function responsiveDrawing(panel, draw) {
 /** Return a self-contained, browser-only worker-model panel for a Quarto OJS cell. */
 export function renderWorkerModel() {
   const panel = createPanel("作業者モデルのパラメータと品質曲線");
-  const state = { ...DEFAULT_WORKER, reviewWork: 6 };
+  const state = { ...DEFAULT_WORKER, totalWork: DEFAULT_DISPLAY_HORIZON, reviewWork: 6 };
   let redraw = () => {};
+  let reviewWorkSlider;
+  addSlider(panel,
+    { key: "totalWork", label: "表示する総実作業 W", min: 5, max: 50, step: 1,
+      value: DEFAULT_DISPLAY_HORIZON, decimals: 0 },
+    value => {
+      state.totalWork = value;
+      const maximum = value - 0.5;
+      state.reviewWork = Math.min(state.reviewWork, maximum);
+      syncSlider(reviewWorkSlider, { value: state.reviewWork, maximum });
+      redraw();
+    });
   for (const control of [
-    { key: "qbar", label: "レビューなしの品質上限 q̄", min: 20, max: 100, step: 1, value: 80, decimals: 0 },
-    { key: "k", label: "基礎的な改善速度 k", min: 0.05, max: 1, step: 0.01, value: 0.25, decimals: 2 },
-    { key: "h", label: "レビューの成熟尺度 h", min: 0.5, max: 15, step: 0.5, value: 4 },
-    { key: "reviewWork", label: "レビューまでの実作業 x", min: 0.5, max: 24.5, step: 0.5, value: 6 },
+    { key: "qbar", label: "レビューなしの品質上限 q̄", min: 20, max: 100, step: 1,
+      value: 80, decimals: 0 },
+    { key: "k", label: "基礎的な改善速度 k", min: 0.05, max: 1, step: 0.01,
+      value: 0.25, decimals: 2 },
+    { key: "h", label: "レビューの成熟尺度 h", min: 0.5, max: 15, step: 0.5,
+      value: 4 },
   ]) {
     addSlider(panel, control, value => { state[control.key] = value; redraw(); });
   }
+  reviewWorkSlider = addSlider(panel,
+    { key: "reviewWork", label: "レビューまでの実作業 x", min: 0.5,
+      max: state.totalWork - 0.5, step: 0.5, value: 6 },
+    value => { state.reviewWork = value; redraw(); });
   addLegend(panel, [["rm-review", "レビューあり（実線）"], ["rm-baseline", "レビューなし（破線）"],
     ["rm-threshold", "最低品質 100"]]);
   panel.root.append(htmlElement("p", "rm-note",
-    "横軸は1つのタスクに投入する累積実作業 s です。縦の点線と丸印はレビューまでの実作業量 x を示します。この図では総作業を25に固定しています。表示中の x はモデルを説明するための設定値であり、最適化で求めたレビュー時点ではありません。数値は説明用の仮定です。"));
+    "横軸は1つのタスクに投入する累積実作業 s です。総実作業 W は表示範囲の終点、縦の点線と丸印はレビューまでの実作業量 x を示します。W はカレンダー上の期限とは別の量です。初期値25を含む表示値は説明用の仮定であり、最適化で求めたレビュー時点ではありません。"));
 
   redraw = responsiveDrawing(panel, width => {
     const reviewQuality = baselineQuality(state.reviewWork, state);
-    const finalQuality = reviewedQuality(state.reviewWork, TOTAL_TIME - state.reviewWork, state);
+    const finalQuality = reviewedQuality(state.reviewWork,
+      state.totalWork - state.reviewWork, state);
     const beforeSlope = baselineMarginalQuality(state.reviewWork, state);
     const afterSlope = reviewedMarginalQuality(state.reviewWork, 0, state);
-    const description = `累積実作業0から25。レビュー位置${format(state.reviewWork)}、レビュー時の品質${format(reviewQuality)}、総作業25での品質${format(finalQuality)}。レビュー時に品質は連続し、その直後の改善速度が上がります。`;
-    const frame = chartFrame(panel, { width, maximum: Math.max(120, Math.ceil(finalQuality / 20) * 20),
+    const description = `累積実作業0から${format(state.totalWork)}。レビュー位置${format(state.reviewWork)}、レビュー時の品質${format(reviewQuality)}、総実作業${format(state.totalWork)}での品質${format(finalQuality)}。レビュー時に品質は連続し、その直後の改善速度が上がります。`;
+    const frame = chartFrame(panel, { width, horizon: state.totalWork,
+      maximum: Math.max(120, Math.ceil(finalQuality / 20) * 20),
       title: "レビュー前後の品質曲線", description, xLabel: "累積実作業 s", yLabel: "品質" });
-    addCurve(frame, work => baselineQuality(work, state), "rm-baseline");
-    addCurve(frame, work => qualityAtWork(work, state.reviewWork, state), "rm-review");
+    addCurve(frame, state.totalWork, work => baselineQuality(work, state), "rm-baseline");
+    addCurve(frame, state.totalWork,
+      work => qualityAtWork(work, state.reviewWork, state), "rm-review");
     addTimeMarker(frame, state.reviewWork);
     addPoint(frame, state.reviewWork, reviewQuality, "#087e8b");
     panel.chart.replaceChildren(frame.svg);
     const rows = [
-      { text: `レビュー時：約${format(reviewQuality)} ／ 総作業25での品質：約${format(finalQuality)}` },
+      { text: `レビュー時：約${format(reviewQuality)} ／ 総実作業 W = ${format(state.totalWork)} での品質：約${format(finalQuality)}` },
       { text: `レビュー直前・直後の改善速度：${format(beforeSlope, 2)} → ${format(afterSlope, 2)}（品質／作業時間）。品質自体は跳びません。` },
     ];
     if (state.qbar <= 50) {
@@ -254,7 +299,7 @@ export function renderWorkerModel() {
     } else if (finalQuality < MINIMUM_QUALITY) {
       rows.push({ text: "このレビュー時点では最低品質100に未達です（判定は丸め前の値）。別のレビュー時点でも達成不能かどうかは、この表示だけでは判断できません。", warning: true });
     } else {
-      rows.push({ text: "このレビュー時点では、総作業25で最低品質100に到達しています。" });
+      rows.push({ text: `このレビュー時点では、総実作業 W = ${format(state.totalWork)} で最低品質100に到達しています。` });
     }
     setSummary(panel, rows);
   });
@@ -264,29 +309,44 @@ export function renderWorkerModel() {
 /** Return a self-contained panel for one manager's calendar-time expectation. */
 export function renderManagerModel() {
   const panel = createPanel("マネージャーモデルのパラメータと期待品質");
-  const state = { a: 20, b: 3, time: 10 };
+  const state = { a: 20, b: 3, deadline: DEFAULT_DISPLAY_HORIZON, time: 10 };
   let redraw = () => {};
+  let timeSlider;
+  addSlider(panel,
+    { key: "deadline", label: "表示するカレンダー期限 T", min: 5, max: 50, step: 1,
+      value: DEFAULT_DISPLAY_HORIZON, decimals: 0 },
+    value => {
+      state.deadline = value;
+      state.time = Math.min(state.time, value);
+      syncSlider(timeSlider, { value: state.time, maximum: value });
+      redraw();
+    });
   for (const control of [
     { key: "a", label: "初期期待値 a", min: 0, max: 100, step: 1, value: 20, decimals: 0 },
     { key: "b", label: "期待上昇率 b", min: 0, max: 6, step: 0.1, value: 3 },
-    { key: "time", label: "値を読むカレンダー時刻 t", min: 0, max: 25, step: 0.5, value: 10 },
   ]) {
     addSlider(panel, control, value => { state[control.key] = value; redraw(); });
   }
+  timeSlider = addSlider(panel,
+    { key: "time", label: "値を読むカレンダー時刻 t", min: 0, max: state.deadline,
+      step: 0.5, value: 10 },
+    value => { state.time = value; redraw(); });
   addLegend(panel, [["rm-manager", "期待品質 e(t)（実線・丸印）"],
     ["rm-threshold", "最低品質 100（参照線）"]]);
   panel.root.append(htmlElement("p", "rm-note",
-    "a は時刻0の期待品質であり、直線を上下に動かします。b はカレンダー時刻1単位あたりの期待品質の増加量であり、直線の傾きを変えます。横軸はカレンダー時刻 t であって、タスクの実作業時間ではありません。作業していない間も期待品質は時間とともに変化します。数値は説明用の仮定です。"));
+    "a は時刻0の期待品質であり、直線を上下に動かします。b はカレンダー時刻1単位あたりの期待品質の増加量であり、直線の傾きを変えます。横軸はカレンダー時刻 t、T は表示範囲の期限であって、タスクの実作業時間ではありません。作業していない間も期待品質は時間とともに変化します。初期値25を含む数値は説明用の仮定です。"));
 
   redraw = responsiveDrawing(panel, width => {
     const manager = { a: state.a, b: state.b };
     const expected = managerExpectation(state.time, manager);
     const maximum = Math.max(120,
-      Math.ceil(managerExpectation(TOTAL_TIME, manager) / 20) * 20);
-    const description = `カレンダー時刻0から25。マネージャーの期待品質は${state.a}+${state.b}t。時刻${format(state.time)}での期待品質は${format(expected)}。`;
-    const frame = chartFrame(panel, { width, maximum, title: "マネージャーの期待品質",
+      Math.ceil(managerExpectation(state.deadline, manager) / 20) * 20);
+    const description = `カレンダー時刻0から${format(state.deadline)}。マネージャーの期待品質は${state.a}+${state.b}t。時刻${format(state.time)}での期待品質は${format(expected)}。`;
+    const frame = chartFrame(panel, { width, horizon: state.deadline, maximum,
+      title: "マネージャーの期待品質",
       description, xLabel: "カレンダー時刻 t", yLabel: "期待品質 e(t)" });
-    addCurve(frame, time => managerExpectation(time, manager), "rm-manager");
+    addCurve(frame, state.deadline,
+      time => managerExpectation(time, manager), "rm-manager");
     addTimeMarker(frame, state.time);
     addPoint(frame, state.time, expected, "#087e8b");
     panel.chart.replaceChildren(frame.svg);

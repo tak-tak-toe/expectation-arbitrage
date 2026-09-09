@@ -1,5 +1,4 @@
 /** Pure functions shared by the interactive figures and their tests. */
-export const TOTAL_TIME = 25;
 export const MINIMUM_QUALITY = 100;
 export const DEFAULT_WORKER = Object.freeze({ qbar: 80, k: 0.25, h: 4 });
 
