@@ -7,11 +7,46 @@ import {
   baselineMarginalQuality,
   reviewedMarginalQuality,
   managerExpectation,
+  evaluationAxes,
 } from "./model.js";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const DEFAULT_DISPLAY_HORIZON = 25;
+const DEFAULT_SCENARIO = Object.freeze({
+  ...DEFAULT_WORKER,
+  totalWork: DEFAULT_DISPLAY_HORIZON,
+  reviewWork: 6,
+  a: 20,
+  b: 3,
+  deadline: DEFAULT_DISPLAY_HORIZON,
+  reviewTime: 6,
+  completionTime: DEFAULT_DISPLAY_HORIZON,
+});
 let nextWidgetId = 0;
+
+/** Create shared state for the worker, manager, and evaluation panels. */
+export function createReviewScenario(initial = {}) {
+  let state = { ...DEFAULT_SCENARIO, ...initial };
+  const listeners = new Set();
+  return {
+    snapshot() {
+      return { ...state };
+    },
+    update(patch) {
+      state = { ...state, ...patch };
+      const snapshot = { ...state };
+      for (const listener of [...listeners]) listener(snapshot);
+      return snapshot;
+    },
+    subscribe(listener) {
+      if (typeof listener !== "function") {
+        throw new TypeError("listener must be a function.");
+      }
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
 
 // Every selector is scoped to this widget; the surrounding book owns typography.
 const STYLES = `
@@ -33,16 +68,28 @@ const STYLES = `
 .review-model-widget .rm-baseline { stroke: #707070; stroke-dasharray: 7 4; }
 .review-model-widget .rm-manager { stroke: #087e8b; }
 .review-model-widget .rm-marker { stroke: currentColor; opacity: .55; stroke-dasharray: 2 4; }
+.review-model-widget .rm-marker.rm-review-time { stroke: #b5571c; opacity: .8; }
+.review-model-widget .rm-marker.rm-completion-time { stroke: #8d647d; opacity: .8; }
 .review-model-widget .rm-threshold { stroke: #8d647d; stroke-dasharray: 8 3 2 3; }
 .review-model-widget .rm-legend { display: flex; flex-wrap: wrap; gap: .3rem .85rem; padding: 0; margin: .45rem 0 .8rem; list-style: none; font-size: .8rem; }
 .review-model-widget .rm-legend li { display: flex; align-items: center; gap: .35rem; }
 .review-model-widget .rm-swatch { display: inline-block; width: 1.65rem; flex: 0 0 1.65rem; border-top: 3px solid #087e8b; }
 .review-model-widget .rm-swatch.rm-baseline { border-color: #707070; border-top-style: dashed; }
+.review-model-widget .rm-swatch.rm-review-time { border-color: #b5571c; border-top-style: dashed; }
+.review-model-widget .rm-swatch.rm-completion-time { border-color: #8d647d; border-top-style: dashed; }
 .review-model-widget .rm-swatch.rm-threshold { border-color: #8d647d; border-top-style: dotted; }
 .review-model-widget .rm-summary { border-left: 3px solid #087e8b; padding: .45rem .65rem; margin: .65rem 0; background: rgba(8,126,139,.05); }
 .review-model-widget .rm-summary p { margin: .25rem 0; font: inherit; font-size: .86rem; line-height: 1.55; }
 .review-model-widget .rm-summary .rm-warning { font-weight: 600; }
 .review-model-widget .rm-note { font: inherit; font-size: .82rem; line-height: 1.55; margin: .65rem 0 0; }
+.review-model-widget .rm-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; margin: .8rem 0; }
+.review-model-widget .rm-metric { min-width: 0; padding: .75rem; border: 1px solid rgba(8,126,139,.28); border-radius: .35rem; background: rgba(8,126,139,.05); }
+.review-model-widget .rm-metric-label { margin: 0 0 .2rem; font-size: .82rem; line-height: 1.4; }
+.review-model-widget .rm-metric-value { display: block; margin: 0; font-size: 1.45rem; font-weight: 700; line-height: 1.25; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.review-model-widget .rm-metric-note { margin: .25rem 0 0; font-size: .75rem; line-height: 1.4; }
+@media (max-width: 420px) {
+  .review-model-widget .rm-metrics { grid-template-columns: 1fr; }
+}
 `;
 
 function htmlElement(name, className, content) {
@@ -113,7 +160,8 @@ function addSlider(panel, { key, label, min, max, step, value, decimals = 1 }, o
   return { input, output, decimals };
 }
 
-function syncSlider(slider, { value, maximum }) {
+function syncSlider(slider, { value, minimum, maximum }) {
+  if (minimum !== undefined) slider.input.min = String(minimum);
   if (maximum !== undefined) slider.input.max = String(maximum);
   slider.input.value = String(value);
   slider.output.value = format(slider.input.valueAsNumber, slider.decimals);
@@ -132,6 +180,42 @@ function addLegend(panel, entries) {
 function setSummary(panel, rows) {
   panel.summary.replaceChildren(...rows.map(({ text, warning }) =>
     htmlElement("p", warning ? "rm-warning" : undefined, text)));
+}
+
+function createMetricsPanel(name) {
+  const root = htmlElement("div", "review-model-widget");
+  root.setAttribute("role", "group");
+  root.setAttribute("aria-label", name);
+  const style = htmlElement("style");
+  style.textContent = STYLES;
+  const metrics = htmlElement("div", "rm-metrics");
+  metrics.setAttribute("aria-live", "polite");
+  metrics.setAttribute("aria-atomic", "true");
+  const details = htmlElement("div", "rm-summary");
+  details.setAttribute("aria-live", "polite");
+  details.setAttribute("aria-atomic", "true");
+  root.append(style, metrics, details);
+  return { root, metrics, details };
+}
+
+function addMetricCard(panel, label, note) {
+  const card = htmlElement("div", "rm-metric");
+  const labelElement = htmlElement("p", "rm-metric-label", label);
+  const value = htmlElement("output", "rm-metric-value");
+  value.setAttribute("aria-label", label);
+  const noteElement = htmlElement("p", "rm-metric-note", note);
+  card.append(labelElement, value, noteElement);
+  panel.metrics.append(card);
+  return value;
+}
+
+function attachSubscription(panel, store, listener) {
+  const unsubscribe = store.subscribe(listener);
+  const disposePanel = panel.root.dispose ?? (() => {});
+  panel.root.dispose = () => {
+    unsubscribe();
+    disposePanel();
+  };
 }
 
 function horizontalTicks(horizon, innerWidth) {
@@ -199,9 +283,10 @@ function addCurve(frame, horizon, quality, className) {
   frame.svg.append(svgElement("path", { d: data, class: `rm-line ${className}` }));
 }
 
-function addTimeMarker(frame, time) {
+function addTimeMarker(frame, time, className = "") {
   frame.svg.append(svgElement("line", { x1: frame.xScale(time), x2: frame.xScale(time),
-    y1: frame.yScale(0), y2: frame.yScale(frame.maximum), class: "rm-marker" }));
+    y1: frame.yScale(0), y2: frame.yScale(frame.maximum),
+    class: `rm-marker ${className}`.trim() }));
 }
 
 function addPoint(frame, time, value, color) {
@@ -240,35 +325,35 @@ function responsiveDrawing(panel, draw) {
 }
 
 /** Return a self-contained, browser-only worker-model panel for a Quarto OJS cell. */
-export function renderWorkerModel() {
+export function renderWorkerModel(store = createReviewScenario()) {
   const panel = createPanel("作業者モデルのパラメータと品質曲線");
-  const state = { ...DEFAULT_WORKER, totalWork: DEFAULT_DISPLAY_HORIZON, reviewWork: 6 };
+  let state = store.snapshot();
   let redraw = () => {};
-  let reviewWorkSlider;
-  addSlider(panel,
+  const sliders = {};
+  sliders.totalWork = addSlider(panel,
     { key: "totalWork", label: "表示する総実作業 W", min: 5, max: 50, step: 1,
-      value: DEFAULT_DISPLAY_HORIZON, decimals: 0 },
+      value: state.totalWork, decimals: 0 },
     value => {
-      state.totalWork = value;
       const maximum = value - 0.5;
-      state.reviewWork = Math.min(state.reviewWork, maximum);
-      syncSlider(reviewWorkSlider, { value: state.reviewWork, maximum });
-      redraw();
+      store.update({
+        totalWork: value,
+        reviewWork: Math.min(state.reviewWork, maximum),
+      });
     });
   for (const control of [
     { key: "qbar", label: "基準品質の上限 q̄", min: 20, max: 100, step: 1,
-      value: 80, decimals: 0 },
+      decimals: 0 },
     { key: "k", label: "基礎的な改善速度 k", min: 0.05, max: 1, step: 0.01,
-      value: 0.25, decimals: 2 },
-    { key: "h", label: "レビューの成熟尺度 h", min: 0.5, max: 15, step: 0.5,
-      value: 4 },
+      decimals: 2 },
+    { key: "h", label: "レビューの成熟尺度 h", min: 0.5, max: 15, step: 0.5 },
   ]) {
-    addSlider(panel, control, value => { state[control.key] = value; redraw(); });
+    sliders[control.key] = addSlider(panel, { ...control, value: state[control.key] },
+      value => store.update({ [control.key]: value }));
   }
-  reviewWorkSlider = addSlider(panel,
+  sliders.reviewWork = addSlider(panel,
     { key: "reviewWork", label: "レビューまでの実作業 x", min: 0.5,
-      max: state.totalWork - 0.5, step: 0.5, value: 6 },
-    value => { state.reviewWork = value; redraw(); });
+      max: state.totalWork - 0.5, step: 0.5, value: state.reviewWork },
+    value => store.update({ reviewWork: value }));
   addLegend(panel, [["rm-review", "レビュー適用曲線（実線）"], ["rm-baseline", "基準品質曲線 q₀（破線）"],
     ["rm-threshold", "最低品質 100"]]);
   panel.root.append(htmlElement("p", "rm-note",
@@ -303,57 +388,135 @@ export function renderWorkerModel() {
     }
     setSummary(panel, rows);
   });
+  attachSubscription(panel, store, nextState => {
+    state = nextState;
+    syncSlider(sliders.totalWork, { value: state.totalWork });
+    syncSlider(sliders.qbar, { value: state.qbar });
+    syncSlider(sliders.k, { value: state.k });
+    syncSlider(sliders.h, { value: state.h });
+    syncSlider(sliders.reviewWork,
+      { value: state.reviewWork, maximum: state.totalWork - 0.5 });
+    redraw();
+  });
   return panel.root;
 }
 
 /** Return a self-contained panel for one manager's calendar-time expectation. */
-export function renderManagerModel() {
+export function renderManagerModel(store = createReviewScenario()) {
   const panel = createPanel("マネージャーモデルのパラメータと期待品質");
-  const state = { a: 20, b: 3, deadline: DEFAULT_DISPLAY_HORIZON, time: 10 };
+  let state = store.snapshot();
   let redraw = () => {};
-  let timeSlider;
-  addSlider(panel,
+  const sliders = {};
+  sliders.deadline = addSlider(panel,
     { key: "deadline", label: "表示するカレンダー期限 T", min: 5, max: 50, step: 1,
-      value: DEFAULT_DISPLAY_HORIZON, decimals: 0 },
+      value: state.deadline, decimals: 0 },
     value => {
-      state.deadline = value;
-      state.time = Math.min(state.time, value);
-      syncSlider(timeSlider, { value: state.time, maximum: value });
-      redraw();
+      const completionTime = Math.min(state.completionTime, value);
+      const reviewTime = Math.min(state.reviewTime, completionTime - 0.5);
+      store.update({ deadline: value, completionTime, reviewTime });
     });
   for (const control of [
-    { key: "a", label: "初期期待値 a", min: 0, max: 100, step: 1, value: 20, decimals: 0 },
-    { key: "b", label: "期待上昇率 b", min: 0, max: 6, step: 0.1, value: 3 },
+    { key: "a", label: "初期期待値 a", min: 0, max: 100, step: 1, decimals: 0 },
+    { key: "b", label: "期待上昇率 b", min: 0, max: 6, step: 0.1 },
   ]) {
-    addSlider(panel, control, value => { state[control.key] = value; redraw(); });
+    sliders[control.key] = addSlider(panel, { ...control, value: state[control.key] },
+      value => store.update({ [control.key]: value }));
   }
-  timeSlider = addSlider(panel,
-    { key: "time", label: "値を読むカレンダー時刻 t", min: 0, max: state.deadline,
-      step: 0.5, value: 10 },
-    value => { state.time = value; redraw(); });
+  sliders.reviewTime = addSlider(panel,
+    { key: "reviewTime", label: "中間レビュー時刻 τ", min: 0.5,
+      max: state.completionTime - 0.5, step: 0.5, value: state.reviewTime },
+    value => store.update({ reviewTime: value }));
+  sliders.completionTime = addSlider(panel,
+    { key: "completionTime", label: "最終レビュー時刻 c", min: state.reviewTime + 0.5,
+      max: state.deadline, step: 0.5, value: state.completionTime },
+    value => store.update({ completionTime: value }));
   addLegend(panel, [["rm-manager", "期待品質 e(t)（実線・丸印）"],
+    ["rm-review-time", "中間レビュー時刻 τ"],
+    ["rm-completion-time", "最終レビュー時刻 c"],
     ["rm-threshold", "最低品質 100（参照線）"]]);
   panel.root.append(htmlElement("p", "rm-note",
-    "a は時刻0の期待品質であり、直線を上下に動かします。b はカレンダー時刻1単位あたりの期待品質の増加量であり、直線の傾きを変えます。横軸はカレンダー時刻 t、T は表示範囲の期限を表します。累積実作業 W は作業者グラフの横軸に対応します。作業休止中も期待品質は時間とともに変化します。初期表示は a=20、b=3、T=25、t=10 です。"));
+    "a は時刻0の期待品質であり、直線を上下に動かします。b はカレンダー時刻1単位あたりの期待品質の増加量であり、直線の傾きを変えます。横軸はカレンダー時刻 t、橙色の印は中間レビュー時刻 τ、紫色の印は最終レビュー時刻 c、T はカレンダー期限を表します。作業休止中も期待品質は時間とともに変化します。初期表示は a=20、b=3、T=25、τ=6、c=25 です。"));
 
   redraw = responsiveDrawing(panel, width => {
     const manager = { a: state.a, b: state.b };
-    const expected = managerExpectation(state.time, manager);
+    const reviewExpectation = managerExpectation(state.reviewTime, manager);
+    const completionExpectation = managerExpectation(state.completionTime, manager);
     const maximum = Math.max(120,
       Math.ceil(managerExpectation(state.deadline, manager) / 20) * 20);
-    const description = `カレンダー時刻0から${format(state.deadline)}。マネージャーの期待品質は${state.a}+${state.b}t。時刻${format(state.time)}での期待品質は${format(expected)}。`;
+    const description = `カレンダー時刻0から${format(state.deadline)}。マネージャーの期待品質は${state.a}+${state.b}t。中間レビュー時刻${format(state.reviewTime)}で${format(reviewExpectation)}、最終レビュー時刻${format(state.completionTime)}で${format(completionExpectation)}。`;
     const frame = chartFrame(panel, { width, horizon: state.deadline, maximum,
       title: "マネージャーの期待品質",
       description, xLabel: "カレンダー時刻 t", yLabel: "期待品質 e(t)" });
     addCurve(frame, state.deadline,
       time => managerExpectation(time, manager), "rm-manager");
-    addTimeMarker(frame, state.time);
-    addPoint(frame, state.time, expected, "#087e8b");
+    addTimeMarker(frame, state.reviewTime, "rm-review-time");
+    addTimeMarker(frame, state.completionTime, "rm-completion-time");
+    addPoint(frame, state.reviewTime, reviewExpectation, "#b5571c");
+    addPoint(frame, state.completionTime, completionExpectation, "#8d647d");
     panel.chart.replaceChildren(frame.svg);
     setSummary(panel, [
-      { text: `t = ${format(state.time)} での期待品質：約${format(expected)}` },
+      { text: `τ = ${format(state.reviewTime)} での期待品質：約${format(reviewExpectation)}` },
+      { text: `c = ${format(state.completionTime)} での期待品質：約${format(completionExpectation)}` },
       { text: `e(t) = ${format(state.a)} + ${format(state.b)}t` },
     ]);
+  });
+  attachSubscription(panel, store, nextState => {
+    state = nextState;
+    syncSlider(sliders.deadline, { value: state.deadline });
+    syncSlider(sliders.a, { value: state.a });
+    syncSlider(sliders.b, { value: state.b });
+    syncSlider(sliders.reviewTime,
+      { value: state.reviewTime, minimum: 0.5, maximum: state.completionTime - 0.5 });
+    syncSlider(sliders.completionTime,
+      { value: state.completionTime, minimum: state.reviewTime + 0.5, maximum: state.deadline });
+    redraw();
+  });
+  return panel.root;
+}
+
+/** Return live values for the three evaluation axes of the shared scenario. */
+export function renderEvaluationAxes(store = createReviewScenario()) {
+  const panel = createMetricsPanel("三つの評価軸");
+  const evaluationOutput = addMetricCard(panel, "作業者評価 V", "大きいほど高い評価");
+  const qualityOutput = addMetricCard(panel, "最終品質 Q", "大きいほど高い最終品質");
+  const workOutput = addMetricCard(panel, "投入作業量 W", "品質基準100の達成域で小さいほど高い作業効率");
+  let state = store.snapshot();
+
+  const redraw = () => {
+    const axes = evaluationAxes(state);
+    evaluationOutput.value = format(axes.evaluation, 2);
+    qualityOutput.value = format(axes.finalQuality, 2);
+    workOutput.value = format(axes.totalWork);
+
+    const qualityMargin = `${axes.qualityMargin >= 0 ? "+" : ""}${format(axes.qualityMargin, 2)}`;
+    const scheduleStatus = axes.scheduleFeasible
+      ? "時間制約の各差が0以上となり、現在の設定は実行可能領域にあります。"
+      : "実行可能領域は、時間制約の各差が0以上となる設定です。";
+    const qualityStatus = axes.meetsQualityStandard
+      ? "品質基準の差が0以上となり、現在の設定は品質基準の達成領域にあります。"
+      : "品質基準の達成領域は、Q − 100 が0以上となる設定です。";
+    panel.details.replaceChildren(
+      htmlElement("p", undefined,
+        `中間レビュー：q₀(x) = ${format(axes.reviewQuality, 2)} ／ e(τ) = ${format(axes.reviewExpectation, 2)} ／ vᴿ = ${format(axes.reviewScore, 2)}`),
+      htmlElement("p", undefined,
+        `最終レビュー：Q(x,y) = ${format(axes.finalQuality, 2)} ／ e(c) = ${format(axes.completionExpectation, 2)} ／ vᶠ = ${format(axes.completionScore, 2)}`),
+      htmlElement("p", undefined,
+        `V = (${format(axes.reviewScore, 2)} + ${format(axes.completionScore, 2)}) ÷ 2 = ${format(axes.evaluation, 2)}`),
+      htmlElement("p", undefined,
+        `W = x + y = ${format(state.reviewWork)} + ${format(axes.postReviewWork)} = ${format(axes.totalWork)}`),
+      htmlElement("p", undefined,
+        `品質基準との差：Q − 100 = ${qualityMargin}`),
+      htmlElement("p", undefined,
+        `時間制約の差：τ − x = ${format(axes.preSlack)} ／ (c − τ) − y = ${format(axes.postSlack)} ／ T − c = ${format(axes.deadlineSlack)}`),
+      htmlElement("p", axes.meetsQualityStandard ? undefined : "rm-warning", qualityStatus),
+      htmlElement("p", axes.scheduleFeasible ? undefined : "rm-warning", scheduleStatus),
+    );
+  };
+
+  redraw();
+  attachSubscription(panel, store, nextState => {
+    state = nextState;
+    redraw();
   });
   return panel.root;
 }

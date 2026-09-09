@@ -92,7 +92,8 @@ $$ {#eq-review-marginal}
 
 ```{ojs}
 //| echo: false
-import { renderWorkerModel, renderManagerModel } from "../widgets/review-model/widget.js"
+import { createReviewScenario, renderWorkerModel, renderManagerModel, renderEvaluationAxes } from "../widgets/review-model/widget.js"
+reviewScenario = createReviewScenario()
 ```
 
 ```{ojs}
@@ -100,7 +101,7 @@ import { renderWorkerModel, renderManagerModel } from "../widgets/review-model/w
 //| fig-cap: "累積実作業量に対する品質。レビュー時点では品質が連続し、その後の改善速度が変わる。"
 //| echo: false
 {
-  const panel = renderWorkerModel();
+  const panel = renderWorkerModel(reviewScenario);
   invalidation.then(() => panel.dispose());
   return panel;
 }
@@ -121,16 +122,16 @@ $a$ は依頼直後の初期期待値であり、マネージャーが成果物�
 
 ### 期待値曲線の可視化 {.unnumbered}
 
-下のグラフでは、一人のマネージャーについて、初期期待値 $a$、期待上昇率 $b$、締切 $T$、値を確認する時刻 $t$ を変更できる。$a$ を変えると直線全体が上下し、$b$ を変えると傾きが変わる。横軸にはカレンダー時刻を用い、作業者モデルのグラフでは累積実作業量を用いる。
+下のグラフでは、一人のマネージャーについて、初期期待値 $a$、期待上昇率 $b$、締切 $T$、中間レビュー時刻 $\tau$、最終レビュー時刻 $c$ を変更できる。$a$ を変えると直線全体が上下し、$b$ を変えると傾きが変わる。横軸にはカレンダー時刻を用い、二つのマーカーで各レビュー時点の期待品質を示す。作業者モデルのグラフでは累積実作業量を用いる。
 
-グラフの初期表示には $(a,b,T)=(20,3,25)$ を用いる。
+グラフの初期表示には $(a,b,T,\tau,c)=(20,3,25,6,25)$ を用いる。
 
 ```{ojs}
 //| label: fig-manager-model
 //| fig-cap: "カレンダー上の経過時間に対する、一人のマネージャーの期待品質。"
 //| echo: false
 {
-  const panel = renderManagerModel();
+  const panel = renderManagerModel(reviewScenario);
   invalidation.then(() => panel.dispose());
   return panel;
 }
@@ -154,6 +155,34 @@ V=\frac12\left(v^R+v^F\right)
 $$ {#eq-task-evaluation}
 
 である。$V$ は、各レビュー時点における品質と期待品質の差を平均した値である。
+
+### 三つの評価軸 {.unnumbered}
+
+同じパラメータ設定を、作業者評価、最終品質、投入作業量の三つの軸で捉える。レビュー後の作業量を $y=W-x$ とすると、現在の設定に対応する値は、
+
+$$
+\begin{aligned}
+\text{作業者評価} &\quad V
+=\frac12\left[q_0(x)-e(\tau)+Q(x,W-x)-e(c)\right],\\
+\text{最終品質} &\quad Q=Q(x,W-x),\\
+\text{投入作業量} &\quad W=x+y,\qquad Q(x,y)\ge 100
+\end{aligned}
+$$ {#eq-three-evaluation-axes}
+
+である。$V$ と $Q$ は値が大きいほど高い成果を表す。$W$ は投入資源の大きさを表し、品質基準 $Q\ge100$ を満たす領域では値が小さいほど高い生産性に対応する。
+
+下のパネルは、作業者グラフの $(W,x,\bar q,k,h)$ とマネージャーグラフの $(a,b,T,\tau,c)$ を共有し、三つの評価軸を計算する。スライダー操作に合わせて、中間評価 $v^R$、最終評価 $v^F$、品質基準との差、各時間制約の差も更新する。
+
+```{ojs}
+//| label: fig-evaluation-axes
+//| fig-cap: "グラフの設定から計算した、作業者評価・最終品質・投入作業量。"
+//| echo: false
+{
+  const panel = renderEvaluationAxes(reviewScenario);
+  invalidation.then(() => panel.dispose());
+  return panel;
+}
+```
 
 ## 最低品質
 

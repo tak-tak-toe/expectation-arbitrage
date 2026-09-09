@@ -11,7 +11,9 @@ import {
   reviewedMarginalQuality,
   managerExpectation,
   reviewEvaluation,
+  evaluationAxes,
 } from "./model.js";
+import { createReviewScenario } from "./widget.js";
 
 function close(actual, expected, tolerance = 1e-10) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} is not close to ${expected}`);
@@ -114,6 +116,105 @@ test("changing a shifts evaluation values equally and preserves their difference
     evaluation(caseOne, 20) - evaluation(caseTwo, 20));
 });
 
+test("three evaluation axes combine the worker and manager settings", () => {
+  const axes = evaluationAxes({
+    qbar: 80,
+    k: 0.25,
+    h: 4,
+    totalWork: 25,
+    reviewWork: 6,
+    a: 20,
+    b: 3,
+    deadline: 25,
+    reviewTime: 6,
+    completionTime: 25,
+  });
+  close(axes.reviewQuality, baselineQuality(6));
+  close(axes.finalQuality, reviewedQuality(6, 19));
+  close(axes.reviewExpectation, managerExpectation(6, { a: 20, b: 3 }));
+  close(axes.completionExpectation, managerExpectation(25, { a: 20, b: 3 }));
+  close(axes.reviewScore, axes.reviewQuality - axes.reviewExpectation);
+  close(axes.completionScore, axes.finalQuality - axes.completionExpectation);
+  close(axes.evaluation, (axes.reviewScore + axes.completionScore) / 2);
+  close(axes.finalQuality, 118.89881537612908);
+  close(axes.evaluation, 24.02420128212735);
+  close(axes.totalWork, 25);
+  close(axes.postReviewWork, 19);
+  close(axes.preSlack, 0);
+  close(axes.postSlack, 0);
+  close(axes.deadlineSlack, 0);
+  assert.equal(axes.scheduleFeasible, true);
+  assert.equal(axes.meetsQualityStandard, true);
+});
+
+test("shared scenario publishes slider settings to every panel subscriber", () => {
+  const scenario = createReviewScenario();
+  const snapshots = [];
+  const unsubscribe = scenario.subscribe(state => snapshots.push(state));
+  scenario.update({ reviewWork: 7, reviewTime: 8 });
+  assert.equal(snapshots.length, 1);
+  assert.equal(snapshots[0].reviewWork, 7);
+  assert.equal(snapshots[0].reviewTime, 8);
+  assert.equal(scenario.snapshot().completionTime, 25);
+  unsubscribe();
+  scenario.update({ reviewWork: 8 });
+  assert.equal(snapshots.length, 1);
+});
+
+test("evaluation axes report calendar slack for the selected parameters", () => {
+  const axes = evaluationAxes({
+    qbar: 80,
+    k: 0.25,
+    h: 4,
+    totalWork: 20,
+    reviewWork: 6,
+    a: 20,
+    b: 3,
+    deadline: 30,
+    reviewTime: 8,
+    completionTime: 25,
+  });
+  close(axes.preSlack, 2);
+  close(axes.postSlack, 3);
+  close(axes.deadlineSlack, 5);
+  assert.equal(axes.scheduleFeasible, true);
+  assert.equal(axes.meetsQualityStandard, true);
+
+  const compressed = evaluationAxes({
+    qbar: 80,
+    k: 0.25,
+    h: 4,
+    totalWork: 25,
+    reviewWork: 8,
+    a: 20,
+    b: 3,
+    deadline: 25,
+    reviewTime: 6,
+    completionTime: 20,
+  });
+  assert.equal(compressed.scheduleFeasible, false);
+  close(compressed.preSlack, -2);
+  close(compressed.postSlack, -3);
+  close(compressed.deadlineSlack, 5);
+});
+
+test("quality-standard status is separate from calendar feasibility", () => {
+  const axes = evaluationAxes({
+    qbar: 20,
+    k: 0.25,
+    h: 4,
+    totalWork: 20,
+    reviewWork: 6,
+    a: 20,
+    b: 3,
+    deadline: 30,
+    reviewTime: 8,
+    completionTime: 25,
+  });
+  assert.equal(axes.scheduleFeasible, true);
+  assert.equal(axes.meetsQualityStandard, false);
+});
+
 test("invalid inputs are rejected", () => {
   assert.throws(() => baselineQuality(-1), RangeError);
   assert.throws(() => baselineQuality(1, { qbar: 80, k: 0 }), RangeError);
@@ -121,4 +222,11 @@ test("invalid inputs are rejected", () => {
   assert.throws(() => reviewedQuality(1, -1), RangeError);
   assert.throws(() => qualityAtWork(1, -1), RangeError);
   assert.throws(() => managerExpectation(1, { a: 20, b: NaN }), RangeError);
+  const scenario = {
+    qbar: 80, k: 0.25, h: 4, totalWork: 25, reviewWork: 6,
+    a: 20, b: 3, deadline: 25, reviewTime: 6, completionTime: 25,
+  };
+  assert.throws(() => evaluationAxes({ ...scenario, reviewWork: 25 }), RangeError);
+  assert.throws(() => evaluationAxes({ ...scenario, reviewTime: 25 }), RangeError);
+  assert.throws(() => evaluationAxes({ ...scenario, completionTime: 26 }), RangeError);
 });

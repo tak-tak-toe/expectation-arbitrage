@@ -75,3 +75,71 @@ export function reviewEvaluation({ reviewQuality, finalQuality, reviewTime, comp
   return (reviewQuality - managerExpectation(reviewTime, { a, b })
     + finalQuality - managerExpectation(completionTime, { a, b })) / 2;
 }
+
+/** Calculate the three evaluation axes and their supporting values for one task. */
+export function evaluationAxes({
+  qbar,
+  k,
+  h,
+  totalWork,
+  reviewWork,
+  a,
+  b,
+  deadline,
+  reviewTime,
+  completionTime,
+}) {
+  positive(totalWork, "totalWork");
+  positive(reviewWork, "reviewWork");
+  positive(deadline, "deadline");
+  positive(reviewTime, "reviewTime");
+  positive(completionTime, "completionTime");
+  if (reviewWork >= totalWork) {
+    throw new RangeError("reviewWork must be smaller than totalWork.");
+  }
+  if (reviewTime >= completionTime) {
+    throw new RangeError("reviewTime must be smaller than completionTime.");
+  }
+  if (completionTime > deadline) {
+    throw new RangeError("completionTime must be at most deadline.");
+  }
+
+  const worker = { qbar, k, h };
+  const manager = { a, b };
+  const postReviewWork = totalWork - reviewWork;
+  const reviewQuality = baselineQuality(reviewWork, worker);
+  const finalQuality = reviewedQuality(reviewWork, postReviewWork, worker);
+  const reviewExpectation = managerExpectation(reviewTime, manager);
+  const completionExpectation = managerExpectation(completionTime, manager);
+  const reviewScore = reviewQuality - reviewExpectation;
+  const completionScore = finalQuality - completionExpectation;
+  const evaluation = reviewEvaluation({
+    reviewQuality,
+    finalQuality,
+    reviewTime,
+    completionTime,
+    a,
+    b,
+  });
+  const preSlack = reviewTime - reviewWork;
+  const postSlack = completionTime - reviewTime - postReviewWork;
+  const deadlineSlack = deadline - completionTime;
+
+  return {
+    reviewQuality,
+    finalQuality,
+    totalWork,
+    postReviewWork,
+    reviewExpectation,
+    completionExpectation,
+    reviewScore,
+    completionScore,
+    evaluation,
+    qualityMargin: finalQuality - MINIMUM_QUALITY,
+    preSlack,
+    postSlack,
+    deadlineSlack,
+    scheduleFeasible: preSlack >= 0 && postSlack >= 0 && deadlineSlack >= 0,
+    meetsQualityStandard: finalQuality >= MINIMUM_QUALITY,
+  };
+}
