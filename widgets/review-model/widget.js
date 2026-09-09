@@ -256,7 +256,7 @@ export function renderWorkerModel() {
       redraw();
     });
   for (const control of [
-    { key: "qbar", label: "レビューなしの品質上限 q̄", min: 20, max: 100, step: 1,
+    { key: "qbar", label: "基準品質の上限 q̄", min: 20, max: 100, step: 1,
       value: 80, decimals: 0 },
     { key: "k", label: "基礎的な改善速度 k", min: 0.05, max: 1, step: 0.01,
       value: 0.25, decimals: 2 },
@@ -269,10 +269,10 @@ export function renderWorkerModel() {
     { key: "reviewWork", label: "レビューまでの実作業 x", min: 0.5,
       max: state.totalWork - 0.5, step: 0.5, value: 6 },
     value => { state.reviewWork = value; redraw(); });
-  addLegend(panel, [["rm-review", "レビューあり（実線）"], ["rm-baseline", "レビューなし（破線）"],
+  addLegend(panel, [["rm-review", "レビュー適用曲線（実線）"], ["rm-baseline", "基準品質曲線 q₀（破線）"],
     ["rm-threshold", "最低品質 100"]]);
   panel.root.append(htmlElement("p", "rm-note",
-    "横軸は1つのタスクに投入する累積実作業 s です。総実作業 W は表示範囲の終点、縦の点線と丸印はレビューまでの実作業量 x を示します。W はカレンダー上の期限とは別の量です。初期値25を含む表示値は説明用の仮定であり、最適化で求めたレビュー時点ではありません。"));
+    "横軸は1つのタスクに投入する累積実作業 s です。総実作業 W は表示範囲の終点、縦の点線と丸印はレビューまでの実作業量 x を示します。W は累積実作業量、T はカレンダー上の期限を表します。初期表示は W=25、q̄=80、k=0.25、h=4、x=6 です。"));
 
   redraw = responsiveDrawing(panel, width => {
     const reviewQuality = baselineQuality(state.reviewWork, state);
@@ -292,12 +292,12 @@ export function renderWorkerModel() {
     panel.chart.replaceChildren(frame.svg);
     const rows = [
       { text: `レビュー時：約${format(reviewQuality)} ／ 総実作業 W = ${format(state.totalWork)} での品質：約${format(finalQuality)}` },
-      { text: `レビュー直前・直後の改善速度：${format(beforeSlope, 2)} → ${format(afterSlope, 2)}（品質／作業時間）。品質自体は跳びません。` },
+      { text: `レビュー直前・直後の改善速度：${format(beforeSlope, 2)} → ${format(afterSlope, 2)}（品質／作業時間）。品質はレビュー時点で連続です。` },
     ];
     if (state.qbar <= 50) {
-      rows.push({ text: "q̄ ≤ 50 では、有限の作業時間で Q < 2q̄ ≤ 100 となるため、レビュー時点をどこに設定しても最低品質を達成できません。", warning: true });
+      rows.push({ text: "q̄ ≤ 50 では、有限の作業時間における品質が Q < 2q̄ ≤ 100 の範囲に入ります。最低品質100の必要条件は q̄ > 50 です。", warning: true });
     } else if (finalQuality < MINIMUM_QUALITY) {
-      rows.push({ text: "このレビュー時点では最低品質100に未達です（判定は丸め前の値）。別のレビュー時点でも達成不能かどうかは、この表示だけでは判断できません。", warning: true });
+      rows.push({ text: `現在の選択値では、最低品質100までの品質差が約${format(MINIMUM_QUALITY - finalQuality)}です（丸め前の値による判定）。`, warning: true });
     } else {
       rows.push({ text: `このレビュー時点では、総実作業 W = ${format(state.totalWork)} で最低品質100に到達しています。` });
     }
@@ -334,7 +334,7 @@ export function renderManagerModel() {
   addLegend(panel, [["rm-manager", "期待品質 e(t)（実線・丸印）"],
     ["rm-threshold", "最低品質 100（参照線）"]]);
   panel.root.append(htmlElement("p", "rm-note",
-    "a は時刻0の期待品質であり、直線を上下に動かします。b はカレンダー時刻1単位あたりの期待品質の増加量であり、直線の傾きを変えます。横軸はカレンダー時刻 t、T は表示範囲の期限であって、タスクの実作業時間ではありません。作業していない間も期待品質は時間とともに変化します。初期値25を含む数値は説明用の仮定です。"));
+    "a は時刻0の期待品質であり、直線を上下に動かします。b はカレンダー時刻1単位あたりの期待品質の増加量であり、直線の傾きを変えます。横軸はカレンダー時刻 t、T は表示範囲の期限を表します。累積実作業 W は作業者グラフの横軸に対応します。作業休止中も期待品質は時間とともに変化します。初期表示は a=20、b=3、T=25、t=10 です。"));
 
   redraw = responsiveDrawing(panel, width => {
     const manager = { a: state.a, b: state.b };
