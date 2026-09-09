@@ -98,13 +98,14 @@ test("manager intercept shifts the line and slope determines changes over time",
     - managerExpectation(10, { a: 20, b: 3 }), 3);
 });
 
-test("changing a shifts both schedule scores equally and leaves their ordering unchanged", () => {
-  const early = { reviewQuality: 60, finalQuality: 110, reviewTime: 5, completionTime: 15, b: 3 };
-  const late = { reviewQuality: 70, finalQuality: 130, reviewTime: 10, completionTime: 25, b: 3 };
-  const score = (schedule, a) => reviewEvaluation({ ...schedule, a });
-  close(score(early, 50) - score(early, 20), -30);
-  close(score(late, 50) - score(late, 20), -30);
-  close(score(early, 50) - score(late, 50), score(early, 20) - score(late, 20));
+test("changing a shifts evaluation values equally and preserves their difference", () => {
+  const caseOne = { reviewQuality: 60, finalQuality: 110, reviewTime: 5, completionTime: 15, b: 3 };
+  const caseTwo = { reviewQuality: 70, finalQuality: 130, reviewTime: 10, completionTime: 25, b: 3 };
+  const evaluation = (modelCase, a) => reviewEvaluation({ ...modelCase, a });
+  close(evaluation(caseOne, 50) - evaluation(caseOne, 20), -30);
+  close(evaluation(caseTwo, 50) - evaluation(caseTwo, 20), -30);
+  close(evaluation(caseOne, 50) - evaluation(caseTwo, 50),
+    evaluation(caseOne, 20) - evaluation(caseTwo, 20));
 });
 
 test("invalid inputs are rejected", () => {

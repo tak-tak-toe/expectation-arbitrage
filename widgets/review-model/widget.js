@@ -31,15 +31,13 @@ const STYLES = `
 .review-model-widget .rm-line { fill: none; stroke-width: 2.5; stroke-linejoin: round; }
 .review-model-widget .rm-review { stroke: #087e8b; }
 .review-model-widget .rm-baseline { stroke: #707070; stroke-dasharray: 7 4; }
-.review-model-widget .rm-manager-a { stroke: #087e8b; }
-.review-model-widget .rm-manager-b { stroke: #b5571c; stroke-dasharray: 7 4; }
+.review-model-widget .rm-manager { stroke: #087e8b; }
 .review-model-widget .rm-marker { stroke: currentColor; opacity: .55; stroke-dasharray: 2 4; }
 .review-model-widget .rm-threshold { stroke: #8d647d; stroke-dasharray: 8 3 2 3; }
 .review-model-widget .rm-legend { display: flex; flex-wrap: wrap; gap: .3rem .85rem; padding: 0; margin: .45rem 0 .8rem; list-style: none; font-size: .8rem; }
 .review-model-widget .rm-legend li { display: flex; align-items: center; gap: .35rem; }
 .review-model-widget .rm-swatch { display: inline-block; width: 1.65rem; flex: 0 0 1.65rem; border-top: 3px solid #087e8b; }
 .review-model-widget .rm-swatch.rm-baseline { border-color: #707070; border-top-style: dashed; }
-.review-model-widget .rm-swatch.rm-manager-b { border-color: #b5571c; border-top-style: dashed; }
 .review-model-widget .rm-swatch.rm-threshold { border-color: #8d647d; border-top-style: dotted; }
 .review-model-widget .rm-summary { border-left: 3px solid #087e8b; padding: .45rem .65rem; margin: .65rem 0; background: rgba(8,126,139,.05); }
 .review-model-widget .rm-summary p { margin: .25rem 0; font: inherit; font-size: .86rem; line-height: 1.55; }
@@ -181,10 +179,13 @@ function addTimeMarker(frame, time) {
     y1: frame.yScale(0), y2: frame.yScale(frame.maximum), class: "rm-marker" }));
 }
 
-function addPoint(frame, time, value, color, square = false) {
-  frame.svg.append(square
-    ? svgElement("rect", { x: frame.xScale(time) - 4, y: frame.yScale(value) - 4, width: 8, height: 8, fill: color })
-    : svgElement("circle", { cx: frame.xScale(time), cy: frame.yScale(value), r: 4.5, fill: color }));
+function addPoint(frame, time, value, color) {
+  frame.svg.append(svgElement("circle", {
+    cx: frame.xScale(time),
+    cy: frame.yScale(value),
+    r: 4.5,
+    fill: color,
+  }));
 }
 
 function responsiveDrawing(panel, draw) {
@@ -229,7 +230,7 @@ export function renderWorkerModel() {
   addLegend(panel, [["rm-review", "レビューあり（実線）"], ["rm-baseline", "レビューなし（破線）"],
     ["rm-threshold", "最低品質 100"]]);
   panel.root.append(htmlElement("p", "rm-note",
-    "横軸は1タスクに投入する累積実作業 s です。縦の点線と丸印はレビューまでの実作業量 x を示します。総作業25の配分例であり、複数タスクの実行可能な日程や最適解を示すものではありません。数値は説明用の仮定です。"));
+    "横軸は1つのタスクに投入する累積実作業 s です。縦の点線と丸印はレビューまでの実作業量 x を示します。この図では総作業を25に固定しています。表示中の x はモデルを説明するための設定値であり、最適化で求めたレビュー時点ではありません。数値は説明用の仮定です。"));
 
   redraw = responsiveDrawing(panel, width => {
     const reviewQuality = baselineQuality(state.reviewWork, state);
@@ -249,56 +250,49 @@ export function renderWorkerModel() {
       { text: `レビュー直前・直後の改善速度：${format(beforeSlope, 2)} → ${format(afterSlope, 2)}（品質／作業時間）。品質自体は跳びません。` },
     ];
     if (state.qbar <= 50) {
-      rows.push({ text: "q̄ ≤ 50 では、有限の作業時間で Q < 2q̄ ≤ 100 となるため、どの配分でも最低品質を達成できません。", warning: true });
+      rows.push({ text: "q̄ ≤ 50 では、有限の作業時間で Q < 2q̄ ≤ 100 となるため、レビュー時点をどこに設定しても最低品質を達成できません。", warning: true });
     } else if (finalQuality < MINIMUM_QUALITY) {
-      rows.push({ text: "この配分では最低品質100に未達です（判定は丸め前の値）。別の配分でも達成不能かどうかは、この表示だけでは判断できません。", warning: true });
+      rows.push({ text: "このレビュー時点では最低品質100に未達です（判定は丸め前の値）。別のレビュー時点でも達成不能かどうかは、この表示だけでは判断できません。", warning: true });
     } else {
-      rows.push({ text: "この1タスクへの配分では最低品質100に到達しています。複数タスク全体の実行可能性は別途確認が必要です。" });
+      rows.push({ text: "このレビュー時点では、総作業25で最低品質100に到達しています。" });
     }
     setSummary(panel, rows);
   });
   return panel.root;
 }
 
-/** Return a self-contained panel comparing two managers' calendar-time expectations. */
+/** Return a self-contained panel for one manager's calendar-time expectation. */
 export function renderManagerModel() {
   const panel = createPanel("マネージャーモデルのパラメータと期待品質");
-  const state = { aA: 20, bA: 3, aB: 45, bB: 1.5, time: 10 };
+  const state = { a: 20, b: 3, time: 10 };
   let redraw = () => {};
   for (const control of [
-    { key: "aA", label: "A：初期期待値 a", min: 0, max: 100, step: 1, value: 20, decimals: 0 },
-    { key: "bA", label: "A：期待上昇率 b", min: 0, max: 6, step: 0.1, value: 3 },
-    { key: "aB", label: "B：初期期待値 a", min: 0, max: 100, step: 1, value: 45, decimals: 0 },
-    { key: "bB", label: "B：期待上昇率 b", min: 0, max: 6, step: 0.1, value: 1.5 },
+    { key: "a", label: "初期期待値 a", min: 0, max: 100, step: 1, value: 20, decimals: 0 },
+    { key: "b", label: "期待上昇率 b", min: 0, max: 6, step: 0.1, value: 3 },
     { key: "time", label: "値を読むカレンダー時刻 t", min: 0, max: 25, step: 0.5, value: 10 },
   ]) {
     addSlider(panel, control, value => { state[control.key] = value; redraw(); });
   }
-  addLegend(panel, [["rm-manager-a", "A：実線・丸印"], ["rm-manager-b", "B：破線・四角印"],
+  addLegend(panel, [["rm-manager", "期待品質 e(t)（実線・丸印）"],
     ["rm-threshold", "最低品質 100（参照線）"]]);
   panel.root.append(htmlElement("p", "rm-note",
-    "a は直線を上下に動かし、b は傾きを変えます。横軸はカレンダー時刻 t であり、タスクの実作業時間ではありません。作業していない間も期待品質は時間とともに変化します。数値は説明用で、推定値や最適な順序ではありません。"));
+    "a は時刻0の期待品質であり、直線を上下に動かします。b はカレンダー時刻1単位あたりの期待品質の増加量であり、直線の傾きを変えます。横軸はカレンダー時刻 t であって、タスクの実作業時間ではありません。作業していない間も期待品質は時間とともに変化します。数値は説明用の仮定です。"));
 
   redraw = responsiveDrawing(panel, width => {
-    const managerA = { a: state.aA, b: state.bA };
-    const managerB = { a: state.aB, b: state.bB };
-    const expectedA = managerExpectation(state.time, managerA);
-    const expectedB = managerExpectation(state.time, managerB);
-    const maximum = Math.max(120, Math.ceil(Math.max(managerExpectation(TOTAL_TIME, managerA),
-      managerExpectation(TOTAL_TIME, managerB)) / 20) * 20);
-    const description = `カレンダー時刻0から25。Aの期待値は${state.aA}+${state.bA}t、Bは${state.aB}+${state.bB}t。時刻${format(state.time)}でAは${format(expectedA)}、Bは${format(expectedB)}。`;
-    const frame = chartFrame(panel, { width, maximum, title: "2人のマネージャーの期待品質",
+    const manager = { a: state.a, b: state.b };
+    const expected = managerExpectation(state.time, manager);
+    const maximum = Math.max(120,
+      Math.ceil(managerExpectation(TOTAL_TIME, manager) / 20) * 20);
+    const description = `カレンダー時刻0から25。マネージャーの期待品質は${state.a}+${state.b}t。時刻${format(state.time)}での期待品質は${format(expected)}。`;
+    const frame = chartFrame(panel, { width, maximum, title: "マネージャーの期待品質",
       description, xLabel: "カレンダー時刻 t", yLabel: "期待品質 e(t)" });
-    addCurve(frame, time => managerExpectation(time, managerA), "rm-manager-a");
-    addCurve(frame, time => managerExpectation(time, managerB), "rm-manager-b");
+    addCurve(frame, time => managerExpectation(time, manager), "rm-manager");
     addTimeMarker(frame, state.time);
-    addPoint(frame, state.time, expectedA, "#087e8b");
-    addPoint(frame, state.time, expectedB, "#b5571c", true);
+    addPoint(frame, state.time, expected, "#087e8b");
     panel.chart.replaceChildren(frame.svg);
     setSummary(panel, [
-      { text: `t = ${format(state.time)}：A の期待品質 ${format(expectedA)} ／ B の期待品質 ${format(expectedB)}` },
-      { text: `A：e(t) = ${format(state.aA)} + ${format(state.bA)}t　B：e(t) = ${format(state.aB)} + ${format(state.bB)}t` },
-      { text: "この評価式では、a を増やすと評価水準は一律に下がりますが、同じタスクの候補日程どうしの優劣は変わりません。" },
+      { text: `t = ${format(state.time)} での期待品質：約${format(expected)}` },
+      { text: `e(t) = ${format(state.a)} + ${format(state.b)}t` },
     ]);
   });
   return panel.root;
