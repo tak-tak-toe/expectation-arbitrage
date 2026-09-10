@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  DEADLINE,
   DEFAULT_WORKER,
+  DEFAULT_MANAGER,
   baselineQuality,
   resetAmount,
   effectiveAge,
@@ -12,6 +14,10 @@ import {
   managerExpectation,
   reviewEvaluation,
   evaluationAxes,
+  localReviewEvaluation,
+  localOptimalReviewTime,
+  fullEvaluationAtReviewTime,
+  optimalReviewTimeForFixedWork,
 } from "./model.js";
 import { createReviewScenario } from "./widget.js";
 
@@ -104,6 +110,132 @@ test("manager intercept shifts the line and slope determines changes over time",
   }
   close(managerExpectation(11, { a: 20, b: 3 })
     - managerExpectation(10, { a: 20, b: 3 }), 3);
+});
+
+test("the local benchmark has the analytic interior slope-matching optimum", () => {
+  const parameters = { qbar: 80, k: 0.25, a: 20, b: 3 };
+  const optimum = localOptimalReviewTime(parameters);
+  assert.ok(optimum > 0 && optimum < DEADLINE);
+  close(baselineMarginalQuality(optimum, parameters), parameters.b, 1e-10);
+  const epsilon = 0.01;
+  assert.ok(localReviewEvaluation(optimum, parameters)
+    >= localReviewEvaluation(optimum - epsilon, parameters));
+  assert.ok(localReviewEvaluation(optimum, parameters)
+    >= localReviewEvaluation(optimum + epsilon, parameters));
+});
+
+test("the local optimum handles both boundaries analytically", () => {
+  const initialSlope = DEFAULT_WORKER.qbar * DEFAULT_WORKER.k;
+  const deadlineSlope = initialSlope * Math.exp(-DEFAULT_WORKER.k * DEADLINE);
+  close(localOptimalReviewTime({ ...DEFAULT_WORKER, b: initialSlope }), 0);
+  close(localOptimalReviewTime({ ...DEFAULT_WORKER, b: initialSlope + 1 }), 0);
+  close(localOptimalReviewTime({ ...DEFAULT_WORKER, b: deadlineSlope }), DEADLINE);
+  close(localOptimalReviewTime({ ...DEFAULT_WORKER, b: 0 }), DEADLINE);
+});
+
+test("the local optimum accepts a shorter deadline or horizon", () => {
+  const parameters = { ...DEFAULT_WORKER, b: 0 };
+  close(localOptimalReviewTime({ ...parameters, deadline: 10 }), 10);
+  close(localOptimalReviewTime({ ...parameters, horizon: 7.5 }), 7.5);
+  close(localOptimalReviewTime(parameters), DEADLINE);
+
+  const interior = localOptimalReviewTime({ ...DEFAULT_WORKER, b: 5, horizon: 12 });
+  assert.ok(interior > 0 && interior < 12);
+  close(baselineMarginalQuality(interior), 5, 1e-10);
+});
+
+test("higher b moves an interior local optimum earlier while a leaves it unchanged", () => {
+  const common = { qbar: 80, k: 0.25 };
+  const lowExpectationSlope = localOptimalReviewTime({ ...common, a: 0, b: 2 });
+  const highExpectationSlope = localOptimalReviewTime({ ...common, a: 0, b: 5 });
+  assert.ok(highExpectationSlope < lowExpectationSlope);
+  close(localOptimalReviewTime({ ...common, a: 80, b: 5 }), highExpectationSlope);
+  close(
+    localReviewEvaluation(8, { ...common, a: 50, b: 5 })
+      - localReviewEvaluation(8, { ...common, a: 20, b: 5 }),
+    -30,
+  );
+});
+
+test("fixed-work full evaluation matches the stated two-review objective", () => {
+  const parameters = { ...DEFAULT_WORKER, ...DEFAULT_MANAGER, totalWork: 25 };
+  const reviewWork = 6;
+  const expected = reviewEvaluation({
+    reviewQuality: baselineQuality(reviewWork, parameters),
+    finalQuality: reviewedQuality(reviewWork, parameters.totalWork - reviewWork, parameters),
+    reviewTime: reviewWork,
+    completionTime: parameters.totalWork,
+    a: parameters.a,
+    b: parameters.b,
+  });
+  close(fullEvaluationAtReviewTime(reviewWork, parameters), expected);
+  assert.ok(Number.isFinite(fullEvaluationAtReviewTime(0, parameters)));
+  assert.ok(Number.isFinite(fullEvaluationAtReviewTime(25, parameters)));
+});
+
+test("fixed-work optimization returns a deterministic feasible interior point", () => {
+  const parameters = { ...DEFAULT_WORKER, ...DEFAULT_MANAGER, totalWork: 25 };
+  const first = optimalReviewTimeForFixedWork(parameters);
+  const replay = optimalReviewTimeForFixedWork(parameters);
+  assert.deepEqual(replay, first);
+  assert.equal(first.feasible, true);
+  assert.ok(first.reviewTime > 0 && first.reviewTime < first.totalWork);
+  assert.ok(first.finalQuality >= 100);
+  close(first.evaluation, fullEvaluationAtReviewTime(first.reviewTime, parameters), 1e-10);
+  const epsilon = 1e-4;
+  for (const neighbor of [first.reviewTime - epsilon, first.reviewTime + epsilon]) {
+    const quality = reviewedQuality(neighbor, first.totalWork - neighbor, parameters);
+    if (quality >= 100) {
+      assert.ok(first.evaluation + 1e-8
+        >= fullEvaluationAtReviewTime(neighbor, parameters));
+    }
+  }
+});
+
+test("fixed-work optimum is invariant to a and differs from the local benchmark", () => {
+  const common = { ...DEFAULT_WORKER, b: 3, totalWork: 25 };
+  const lowIntercept = optimalReviewTimeForFixedWork({ ...common, a: 10 });
+  const highIntercept = optimalReviewTimeForFixedWork({ ...common, a: 60 });
+  close(lowIntercept.reviewTime, highIntercept.reviewTime, 1e-12);
+  close(highIntercept.evaluation - lowIntercept.evaluation, -50, 1e-10);
+  assert.ok(Math.abs(lowIntercept.reviewTime - lowIntercept.localReviewTime) > 0.25);
+});
+
+test("fixed-work comparison keeps the local marker within W", () => {
+  const result = optimalReviewTimeForFixedWork({
+    ...DEFAULT_WORKER,
+    ...DEFAULT_MANAGER,
+    b: 0,
+    totalWork: 12,
+  });
+  assert.equal(result.feasible, true);
+  close(result.localReviewTime, 12);
+  assert.ok(result.localReviewTime >= 0);
+  assert.ok(result.localReviewTime <= result.totalWork);
+});
+
+test("fixed-work optimization reports an infeasible quality target without an optimum", () => {
+  const result = optimalReviewTimeForFixedWork({
+    qbar: 50,
+    k: 0.25,
+    h: 4,
+    a: 20,
+    b: 3,
+    totalWork: 25,
+  });
+  assert.equal(result.feasible, false);
+  assert.equal(result.reviewTime, null);
+  assert.equal(result.evaluation, null);
+  assert.ok(result.bestAttempt.finalQuality < 100);
+  assert.ok(result.bestAttempt.reviewTime > 0);
+  assert.ok(result.bestAttempt.reviewTime < result.totalWork);
+});
+
+test("fixed-work search keeps an interior numerical domain for a very small W", () => {
+  const result = optimalReviewTimeForFixedWork({ totalWork: 1e-9 });
+  assert.equal(result.feasible, false);
+  assert.ok(result.bestAttempt.reviewTime > 0);
+  assert.ok(result.bestAttempt.reviewTime < result.totalWork);
 });
 
 test("changing a shifts evaluation values equally and preserves their difference", () => {
@@ -222,6 +354,14 @@ test("invalid inputs are rejected", () => {
   assert.throws(() => reviewedQuality(1, -1), RangeError);
   assert.throws(() => qualityAtWork(1, -1), RangeError);
   assert.throws(() => managerExpectation(1, { a: 20, b: NaN }), RangeError);
+  assert.throws(() => localReviewEvaluation(26), RangeError);
+  assert.throws(() => localOptimalReviewTime({ qbar: 101, k: 0.25, b: 3 }), RangeError);
+  assert.throws(() => localOptimalReviewTime({ horizon: 0 }), RangeError);
+  assert.throws(() => localOptimalReviewTime({ deadline: 26 }), RangeError);
+  assert.throws(() => fullEvaluationAtReviewTime(6, { totalWork: 26 }), RangeError);
+  assert.throws(() => fullEvaluationAtReviewTime(26, { totalWork: 25 }), RangeError);
+  assert.throws(() => optimalReviewTimeForFixedWork({ totalWork: 0 }), RangeError);
+  assert.throws(() => optimalReviewTimeForFixedWork({}, { gridPoints: 10 }), RangeError);
   const scenario = {
     qbar: 80, k: 0.25, h: 4, totalWork: 25, reviewWork: 6,
     a: 20, b: 3, deadline: 25, reviewTime: 6, completionTime: 25,

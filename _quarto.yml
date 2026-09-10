@@ -30,8 +30,12 @@ crossref:
 format:
   html:
     theme:
-      - cosmo
-      - styles/textbook.scss
+      light:
+        - cosmo
+        - styles/textbook.scss
+      dark:
+        - darkly
+        - styles/textbook.scss
     html-math-method: mathjax
     toc: true
     toc-depth: 3

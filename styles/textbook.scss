@@ -16,6 +16,44 @@ $border-radius: 0.3rem;
   --textbook-grid-line: #dce4e8;
   --textbook-axis-line: #5d6870;
   --textbook-curve: #236a8d;
+  --textbook-caption: #56616a;
+}
+
+.quarto-dark,
+[data-bs-theme="dark"] {
+  --textbook-panel-bg: rgba(255, 255, 255, 0.055);
+  --textbook-panel-border: rgba(255, 255, 255, 0.22);
+  --textbook-grid-line: rgba(255, 255, 255, 0.16);
+  --textbook-axis-line: #c1cbd1;
+  --textbook-curve: #62cbd3;
+  --textbook-caption: #bdc7cd;
+}
+
+body.quarto-dark,
+body[data-bs-theme="dark"] {
+  --bs-body-color: #e7ecef;
+  --bs-body-color-rgb: 231, 236, 239;
+  --bs-secondary-color: #bdc7cd;
+  --bs-emphasis-color: #ffffff;
+  --bs-heading-color: #f4f7f8;
+  --bs-link-color: #8bd3ef;
+  --bs-link-hover-color: #b4e7f8;
+  color: var(--bs-body-color);
+}
+
+body.quarto-dark :is(h1, h2, h3, h4, h5, h6),
+body[data-bs-theme="dark"] :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--bs-heading-color);
+}
+
+body.quarto-dark a,
+body[data-bs-theme="dark"] a {
+  color: var(--bs-link-color);
+}
+
+body.quarto-dark :is(figcaption, .figure-caption, .table-caption),
+body[data-bs-theme="dark"] :is(figcaption, .figure-caption, .table-caption) {
+  color: var(--textbook-caption);
 }
 
 body {
@@ -41,6 +79,8 @@ h4 {
 }
 
 .math.display {
+  display: block;
+  max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
 }
@@ -51,6 +91,10 @@ h4 {
   gap: clamp(1.25rem, 2.25vw, 2rem);
   align-items: start;
   margin-block: 1.5rem 2.5rem;
+}
+
+.review-model-layout {
+  grid-template-columns: minmax(0, 1.08fr) minmax(20rem, 0.92fr);
 }
 
 .concept-main,
@@ -74,7 +118,21 @@ h4 {
   background: var(--textbook-panel-bg);
 }
 
-.interactive-panel h2 {
+.review-model-panel {
+  align-self: start;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.review-model-panel :is(.cell, .cell-output, .cell-output-display, .quarto-figure) {
+  min-width: 0;
+}
+
+.review-model-panel .quarto-figure {
+  margin: 0;
+}
+
+.interactive-panel :is(h2, h3, h4) {
   font-size: 1.05rem;
   line-height: 1.3;
   margin-bottom: 0.7rem;
@@ -142,7 +200,7 @@ h4 {
 }
 
 .figure-caption {
-  color: #56616a;
+  color: var(--textbook-caption);
 }
 
 @media (max-width: 991.98px) {
