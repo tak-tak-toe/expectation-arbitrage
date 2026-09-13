@@ -1,0 +1,155 @@
+# 実際に解く最適化問題 {#sec-constrained-optimization}
+
+第4章では、二つのタスクを並べる順序が期待上昇の機会費用を生むことを確認した。本章では、作業順序と各フェーズの長さを同時に決める。離散的な六つの順序を完全列挙し、順序ごとの連続問題を決定論的な制約付き非線形最適化として解く。
+
+```{ojs}
+//| echo: false
+import { renderTwoTaskOptimizer } from "../widgets/two-task-optimizer/widget.js"
+```
+
+## 二タスク問題
+
+離散変数 $\pi$ は @eq-multitask-precedence を満たす六つのフェーズ順序、連続変数は
+
+$$
+z=(x_A,y_A,x_B,y_B)
+$$
+
+である。共通締切を $T=25$、完成品質の最低基準を $Q_{\min}=100$、各フェーズ長の数値下限を $\varepsilon>0$ とする。タスクウェイトは $\gamma_A=\gamma_B=1$ と置き、目的関数には @eq-multitask-total-evaluation の $J_{\mathrm{all}}=J_A+J_B$ を用いる。
+
+最適化問題は
+
+$$
+\boxed{
+\begin{aligned}
+\max_{\pi,z}\quad
+&J_A+J_B\\
+\text{s.t.}\quad
+&Q_A(x_A,y_A)\ge Q_{\min},\\
+&Q_B(x_B,y_B)\ge Q_{\min},\\
+&x_A+y_A+x_B+y_B\le T,\\
+&z_j\ge\varepsilon,\\
+&A_1\prec A_2,\qquad B_1\prec B_2
+\end{aligned}
+}
+$$ {#eq-two-task-nlp}
+
+となる。$Q_i(x_i,y_i)$ は第2章の状態遷移から計算し、中間レビューと最終レビューの評価は第3章と同じ定義を使う。したがって、新しい数式は資源制約とタスク間のカレンダー順序に対応する部分へ集中する。
+
+## 離散部分と連続部分
+
+$\pi$ を固定すると、レビュー時刻 $\tau_i$ と完了時刻 $c_i$ は $z$ の線形関数になる。品質と評価は滑らかな関数なので、各順序に対応する問題は四変数の滑らかな制約付き非線形計画になる。問題全体は次の三段階に分解できる。
+
+1. 先行関係を満たす六つの順序を完全列挙する。
+2. 各順序で四変数の連続NLPを解く。
+3. 六つの候補を同じ評価基準で比較する。
+
+六順序の列挙は厳密である。一方、固定順序の品質制約と総合評価には非凸形状が生じ得るため、連続解法の結果は局所候補として扱う。この離散部分と連続部分の区別が、解の強さを正確に伝える。
+
+## KKT条件
+
+固定順序 $\pi$ の最大化目的を $F_\pi(z)$ とし、最小化目的
+
+$$
+f_\pi(z)=-F_\pi(z)
+$$
+
+へ変換する。不等式制約を
+
+$$
+\begin{aligned}
+g_A(z)&=Q_{\min}-Q_A(z)\le0,\\
+g_B(z)&=Q_{\min}-Q_B(z)\le0,\\
+g_T(z)&=\mathbf{1}^\top z-T\le0,\\
+g_j(z)&=\varepsilon-z_j\le0
+\end{aligned}
+$$ {#eq-fixed-order-constraints}
+
+と書く。ラグランジアンは
+
+$$
+\mathcal L(z,\lambda_A,\lambda_B,\mu,\nu)
+=f_\pi(z)
++\lambda_Ag_A(z)
++\lambda_Bg_B(z)
++\mu g_T(z)
++\sum_j\nu_jg_j(z)
+$$ {#eq-kkt-lagrangian}
+
+である。KKT条件は次の四組からなる。
+
+$$
+\nabla_z\mathcal L=0
+$$ {#eq-kkt-stationarity}
+
+$$
+g_A,g_B,g_T,g_j\le0
+$$ {#eq-kkt-primal-feasibility}
+
+$$
+\lambda_A,\lambda_B,\mu,\nu_j\ge0
+$$ {#eq-kkt-dual-feasibility}
+
+$$
+\lambda_Ag_A=0,\qquad
+\lambda_Bg_B=0,\qquad
+\mu g_T=0,\qquad
+\nu_jg_j=0
+$$ {#eq-kkt-complementarity}
+
+固定順序問題の局所解が適切な制約想定（たとえば LICQ や MFCQ）を満たすとき、KKT条件は局所最適性の必要条件になる。$f_\pi$ と制約関数が凸最小化問題を構成する場合には、KKT条件が大域最適性の十分条件にもなる。本モデルは一般の非凸NLPとして扱い、大域最適性には別途、大域最適性証明書（global optimality certificate）を対応させる。本章の解法は局所解法（local solver）に分類し、global certificate は `false` と表示する。
+
+## 第1章からKKTへ
+
+第1章の内点条件 @eq-review-score-foc は、追加1単位の作業が生む限界品質改善と、1単位待つ間の期待上昇を釣り合わせた。KKTの停留条件も同じ考え方を使う。違いは、四つの作業量が相互に影響し、最低品質、総時間、正のフェーズ長という制約の限界価値が乗数として加わる点にある。
+
+$$
+\boxed{
+\text{限界便益と限界コストの一致}
+\quad\longrightarrow\quad
+\text{制約の影の価格を含む停留条件}
+}
+$$ {#eq-marginal-rule-to-kkt}
+
+この接続により、KKTは第1章の停止則を多変数・複数制約へ拡張したものとして読める。
+
+## 影の価格
+
+総時間制約の乗数 $\mu$ は、締切までに利用できる時間を1単位増やしたときの総合評価の限界価値を表す。最適点で総作業量が $T$ より小さいケースでは相補性条件から $\mu=0$ となる。時間制約が有効なケースでは、正則性と局所感度が成立する範囲で、$\mu$ が追加1単位の作業可能時間の価値になる。
+
+同じ正則性のもとで、品質制約の乗数 $\lambda_A,\lambda_B$ は、各タスクの最低品質基準を1単位引き上げたときに生じる総合評価の限界損失を表す。値が大きいタスクほど、品質基準を満たすための機会費用が高い。
+
+## 決定論的な連続解法
+
+各固定順序には、標準 JavaScript で完結する構造化多点開始の射影付き拡張ラグランジュ法（structured-multistart projected augmented-Lagrangian method）を適用する。開始点は固定単体格子（simplex lattice）、均等配分点、モデルの品質構造から得た点で構成し、同じ入力には同じ開始点集合を割り当てる。
+
+総時間制約とフェーズ下限制約は射影で保ち、二つの品質制約は Powell–Hestenes–Rockafellar 型の拡張ラグランジアンへ組み込む。内側の滑らかな問題は BFGS で更新する。最後に、有効制約の組合せを決定論的に列挙する NNLS 計算から乗数を再推定し、停留条件、双対実行可能性、相補性を同じ候補上で評価する。
+
+六順序を通じた表示名は、実行可能性とKKT許容誤差を満たす場合に **best deterministic KKT candidate found**、実行可能性を満たす局所候補に **best feasible deterministic local-solver result**、探索集合に実行可能候補が現れる前の状態に **no feasible candidate found by the deterministic search** を用いる。この表現は、完全列挙された離散部分と、局所解法で扱う連続部分を明確に分ける。
+
+::: {.callout-warning title="数値解の読み方"}
+同じ入力は同じ結果を返し、六つの順序は毎回すべて評価される。大域最適性という呼称は、連続部分まで含む証明書を伴う解に対応する。本ウィジェットの候補は、表示された制約残差とKKT残差を併せて読む。
+:::
+
+## 解法の診断指標
+
+数値結果には、選択されたフェーズ順序、$J_{\mathrm{all}}$、解法ステータス、未正規化および正規化済みの制約残差、停留条件残差、相補性残差、KKT残差を表示する。スケジュール情報として総作業量、余裕時間、各タスクの中間レビュー時刻 $\tau_i$ と完了時刻 $c_i$ を示し、成果情報として最終品質 $Q_i(c_i)$、$S_{i,1}$、$S_{i,2}$、$J_i$ を示す。さらに、品質制約と時間制約の乗数を影の価格として併記する。
+
+制約残差は最大違反量、停留条件残差は $\|\nabla_z\mathcal L\|_\infty$、相補性残差は各乗数と制約値の積の最大絶対値として読む。KKT残差は主実行可能性、双対実行可能性、停留条件、相補性をまとめた最大残差である。
+
+## 二タスク問題を動かす
+
+ウィジェットは作業者の $Q_\infty,\kappa,\bar\rho,\lambda$ と、二人のマネージャーの $E_{0,i},\beta_i$ を受け取り、六つの順序と各順序の連続候補を再計算する。タイムライン、タスク別の最終品質、二つのレビュー評価、総合評価、制約残差、KKT診断を一つの結果として表示する。
+
+```{ojs}
+//| label: fig-two-task-optimizer
+//| fig-cap: "六つの作業順序を完全列挙し、各順序を決定論的な局所NLPで解いた二タスク最適化結果。"
+//| echo: false
+{
+  const panel = renderTwoTaskOptimizer();
+  invalidation.then(() => panel.dispose());
+  return panel;
+}
+```
+
+本章で加わった問題構造は、多変数と複数制約である。第1章の限界条件から始まったモデルは、レビュー介入、総合評価、他タスクへの機会費用を経て、KKTと決定論的NLPへ到達する。

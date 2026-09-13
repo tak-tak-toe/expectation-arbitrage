@@ -1,0 +1,163 @@
+# 複数タスクへの拡張 {#sec-multiple-tasks}
+
+ここまでの三章では、一つのタスクのレビュー時刻を選んだ。本章では一人の作業者が二つのタスク $A,B$ を担当する。新しく加わる構造は、二つのタスクが同じ作業時間を取り合うことである。あるタスクを1時間磨く選択は、もう一方のタスクのレビューを1時間待たせる選択にもなる。
+
+```{ojs}
+//| echo: false
+import { renderScheduleOpportunityCost } from "../widgets/two-task-optimizer/explanation-widget.js"
+```
+
+## 一人の作業者と二つの時計
+
+時刻 $t$ におけるタスク $i\in\{A,B\}$ の作業率を $u_i(t)\in[0,1]$ とする。一人の作業者が同時に使える作業能力は
+
+$$
+u_A(t)+u_B(t)\le1
+$$ {#eq-multitask-capacity}
+
+で表される。共通締切は $T=25$ であり、四つのフェーズの合計作業量は $T$ 以下とする。各タスクの品質は、そのタスクへ投入した累積実作業量に沿って変化する。一方、マネージャー期待はカレンダー時刻に沿って変化する。タスク $A$ に取り組む間、タスク $B$ の品質状態は同じ値を保ち、$B$ の期待は時刻とともに上昇する。
+
+## 四つの作業フェーズ
+
+各タスクを中間レビューの前後に分け、
+
+$$
+A_1,A_2,B_1,B_2
+$$
+
+という四つのフェーズを置く。フェーズ長を
+
+$$
+z=(x_A,y_A,x_B,y_B),
+\qquad x_A,y_A,x_B,y_B>0
+$$ {#eq-multitask-phase-durations}
+
+とする。$x_i$ は中間レビュー前、$y_i$ は中間レビュー後の実作業量である。各タスク内の先行関係（precedence）は
+
+$$
+A_1\prec A_2,
+\qquad
+B_1\prec B_2
+$$ {#eq-multitask-precedence}
+
+となる。この半順序を満たす線形拡張は、次の六通りである。
+
+1. $A_1\rightarrow A_2\rightarrow B_1\rightarrow B_2$
+2. $A_1\rightarrow B_1\rightarrow A_2\rightarrow B_2$
+3. $A_1\rightarrow B_1\rightarrow B_2\rightarrow A_2$
+4. $B_1\rightarrow A_1\rightarrow A_2\rightarrow B_2$
+5. $B_1\rightarrow A_1\rightarrow B_2\rightarrow A_2$
+6. $B_1\rightarrow B_2\rightarrow A_1\rightarrow A_2$
+
+フェーズを時刻0から順に配置し、残る余裕時間を全作業の後ろに置く。この配置は各タスクの作業量に基づく品質を保ち、$\beta_i\ge0$ のもとで各レビューイベントを最も早い時刻へ置く標準形になる。$\beta_i=0$ のケースでは複数のカレンダー配置が同じ評価を与え、その中から前詰め配置を代表として選ぶ。
+
+## 品質配分とカレンダー順序
+
+各タスクの作業量 $(x_i,y_i)$ を固定すると、第2章の状態遷移は自分のタスクへ投入された実作業だけで決まる。したがって、六つの順序は同じ最終品質ベクトル
+
+$$
+\left(Q_A(c_A),Q_B(c_B)\right)
+$$
+
+を与える。この意味で、最終品質だけを目的とする問題の中心は、タスク間の作業量配分である。
+
+期待を評価へ加えると、順序が目的値へ入る。タスク $i$ のマネージャー期待を
+
+$$
+E_i(t)=E_{0,i}+\beta_i t
+$$ {#eq-multitask-expectation}
+
+とし、中間レビュー時刻を $\tau_i$、最終レビュー時刻を $c_i$ とする。二つのレビュー評価とタスク単位の総合評価は
+
+$$
+\begin{aligned}
+S_{i,1}&=Q_i(\tau_i)-E_i(\tau_i),\\
+S_{i,2}&=Q_i(c_i)-E_i(c_i),\\
+J_i&=S_{i,1}+S_{i,2}
+\end{aligned}
+$$ {#eq-multitask-scores}
+
+である。タスクウェイト $\gamma_i>0$ を許すと、全タスクの総合評価は
+
+$$
+J_{\mathrm{all}}=\sum_{i\in\{A,B\}}\gamma_iJ_i
+$$ {#eq-multitask-total-evaluation}
+
+となる。基本ケースでは $\gamma_A=\gamma_B=1$ を用いる。
+
+## 一つの順序から遅延コストを読む
+
+順序
+
+$$
+A_1\rightarrow B_1\rightarrow A_2\rightarrow B_2
+$$
+
+を考える。各レビュー時刻と完了時刻は
+
+$$
+\begin{aligned}
+\tau_A&=x_A,\\
+\tau_B&=x_A+x_B,\\
+c_A&=x_A+x_B+y_A,\\
+c_B&=x_A+x_B+y_A+y_B
+\end{aligned}
+$$ {#eq-example-event-times}
+
+となる。$\gamma_A=\gamma_B=1$ のとき、期待上昇に由来する目的関数内の項は
+
+$$
+-\beta_A(\tau_A+c_A)-\beta_B(\tau_B+c_B)
+$$ {#eq-example-delay-penalty}
+
+である。@eq-example-event-times を代入してフェーズ長ごとに整理すると、限界遅延コストは
+
+$$
+\begin{array}{c|c}
+\text{フェーズ長} & \text{限界遅延コスト}\\
+\hline
+x_A & 2\beta_A+2\beta_B\\
+x_B & \beta_A+2\beta_B\\
+y_A & \beta_A+\beta_B\\
+y_B & \beta_B
+\end{array}
+$$ {#eq-example-delay-coefficients}
+
+となる。先頭の $x_A$ を1単位延ばすと、$A$ と $B$ の中間レビューと最終レビューをすべて1単位遅らせる。末尾の $y_B$ を1単位延ばすと、遅れるイベントは $B$ の最終レビュー一つである。スケジュール前方の1時間ほど多くの後続イベントへ影響し、同じ1時間でも高い機会費用を持つ。
+
+::: {.callout-important title="実務で読む：別案件を待たせる価格"}
+ある案件の追加1時間には、その案件で得られる限界品質改善と、全後続レビューへ生じる期待上昇が同時に含まれる。第1章の「限界品質改善と期待上昇の釣り合い」は、複数タスクでは「自分の限界品質改善と、自分および他タスクの後続イベントを遅らせる限界コストの釣り合い」へ広がる。
+:::
+
+## 六つの順序を比較する
+
+::::: {.concept-layout .review-model-layout}
+
+:::: {.concept-main}
+
+図では六つの順序を切り替え、同じフェーズ長に対するタイムライン、レビュー時刻、完了時刻、期待上昇のペナルティを比較する。品質を一定に保ったまま順序だけを替えることで、カレンダー配置が評価へ入る経路が明確になる。
+
+特に $A_1\rightarrow B_1\rightarrow A_2\rightarrow B_2$ を選ぶと、@eq-example-delay-coefficients の手計算とウィジェットの係数が一致する。ここでの焦点は順序と遅延コストの対応であり、フェーズ長そのものを解く制約付き最適化は @sec-constrained-optimization で扱う。
+
+::::
+
+:::: {.interactive-panel .review-model-panel aria-labelledby="schedule-opportunity-widget-heading"}
+
+### 作業順序を動かす {#schedule-opportunity-widget-heading .unnumbered .unlisted}
+
+```{ojs}
+//| label: fig-schedule-opportunity-cost
+//| fig-cap: "二つのタスクの作業順序と、各レビューイベントへ及ぶ限界遅延コストを示す。"
+//| echo: false
+{
+  const panel = renderScheduleOpportunityCost();
+  invalidation.then(() => panel.dispose());
+  return panel;
+}
+```
+
+::::
+
+:::::
+
+第4章で加わった問題構造は、他タスクへの機会費用である。次章では六つの離散順序と四つの連続作業量を一つの制約付き最適化問題として解く。

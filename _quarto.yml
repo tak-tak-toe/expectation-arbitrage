@@ -8,9 +8,9 @@ book:
   title: "Expectation Arbitrage"
   subtitle: "期待値曲線を踏まえたタスクポートフォリオ最適化"
   author: "tak-tak-toe"
-  description: ""
+  description: "レビュー時評価、フィードバックによる品質改善、複数タスクの時間配分を数理モデルと決定論的最適化で考えるノート"
   site-url: "https://tak-tak-toe.github.io/expectation-arbitrage/"
-  repo-url: ""
+  repo-url: "https://github.com/tak-tak-toe/expectation-arbitrage"
   repo-branch: main
   repo-actions: [source, issue]
   page-navigation: true
@@ -18,8 +18,11 @@ book:
   search: true
   chapters:
     - index.qmd
-    - chapters/00-introduction.qmd
-    - chapters/01-two-task-case.qmd
+    - chapters/01-review-score.qmd
+    - chapters/02-review-quality.qmd
+    - chapters/03-overall-evaluation.qmd
+    - chapters/04-multiple-tasks.qmd
+    - chapters/05-constrained-optimization.qmd
 
 bibliography: references.bib
 link-citations: true

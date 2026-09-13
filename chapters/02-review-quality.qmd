@@ -1,0 +1,204 @@
+# レビューによる品質改善 {#sec-review-quality}
+
+レビューには、成果物を評価する役割と、その後の作業を前進させる役割がある。本章では後者に焦点を合わせ、途中のフィードバックが最終時刻 $T=25$ の成果物品質をどのように変えるかを考える。対象は一つのタスクと一回の中間レビューであり、目的は最終品質の最大化である。
+
+```{ojs}
+//| echo: false
+import { renderQualityReviewWidget } from "../widgets/review-model/quality-widget.js"
+```
+
+## 品質と限界生産性の状態
+
+実現している成果物品質を $Q$、完全にフレッシュな状態と比べた限界生産性を $p\in[0,1]$ とする。実作業量 $w$ に沿った状態方程式を
+
+$$
+\frac{dQ}{dw}=Q_\infty\kappa p,
+\qquad
+\frac{dp}{dw}=-\kappa p
+$$ {#eq-productivity-dynamics}
+
+と置き、初期状態を
+
+$$
+Q(0)=0,
+\qquad
+p(0)=1
+$$ {#eq-worker-initial-state}
+
+とする。ここから
+
+$$
+p(w)=e^{-\kappa w},
+\qquad
+Q(w)=Q_\infty(1-e^{-\kappa w})=\Phi(w)
+$$ {#eq-state-recovers-quality-function}
+
+を得る。したがって、第1章の基準品質生産関数 $\Phi$ は、この状態方程式を初期状態から進めた軌跡に一致する。$p$ の低下は、追加1単位の実作業が生む品質改善の逓減を表す。
+
+任意の状態 $(Q_0,p_0)$ から $\Delta w$ だけ作業を進めると、状態は
+
+$$
+\begin{aligned}
+p^-&=p_0e^{-\kappa\Delta w},\\
+Q^-&=Q_0+Q_\infty p_0\left(1-e^{-\kappa\Delta w}\right)
+\end{aligned}
+$$ {#eq-work-state-transition}
+
+へ移る。この形は、作業区間とレビュー介入を交互に適用できるため、将来の複数レビューにも同じ状態変数で接続できる。
+
+## レビュー有効度
+
+白紙に近い成果物から得られるフィードバックは、一般的な方向づけになりやすい。仮説、主要論点、ストーリー、分析結果が具体化すると、前提の修正や分析方針の転換といった、より具体的な介入が可能になる。このレビュー準備度（review readiness）を、レビュー前作業量 $x$ に応じた有効度
+
+$$
+\rho(x)=\bar\rho\left(1-e^{-\lambda x}\right),
+\qquad 0\le\bar\rho\le1,\quad \lambda>0
+$$ {#eq-review-effectiveness}
+
+で表す。$\bar\rho$ は十分に成熟した成果物から得られるレビュー効果の最大振幅、$\lambda$ はレビューが有効になる速さである。前者は効果量、後者はレビュー準備度の成熟速度に対応する。
+
+レビュー時点の状態遷移は
+
+$$
+Q^+=Q^-,
+\qquad
+p^+=(1-\rho)p^-+\rho
+$$ {#eq-review-state-reset}
+
+である。品質 $Q$ はレビュー時点で連続し、限界生産性 $p$ がフレッシュな状態 $p=1$ へ近づく。$\rho=0$ は同じ生産性状態の継続、$\rho=1$ は完全な回復を表す。
+
+::: {.callout-note title="実務で読む：レビューは曲線の傾きを変える"}
+レビューの瞬間には、それまで作った成果物がそのまま残る。フィードバックの価値は、その後の論点探索や分析が再び大きな品質改善を生む点に現れる。
+:::
+
+## 一回のレビュー後に得られる品質
+
+レビュー前作業量を $x$、レビュー後作業量を $y=T-x$ とする。レビュー直前には
+
+$$
+Q^-=\Phi(x),
+\qquad
+p^-=e^{-\kappa x}
+$$
+
+であり、@eq-review-state-reset の後に $y$ だけ作業を進める。@eq-work-state-transition を適用すると、
+
+$$
+\boxed{
+\begin{aligned}
+Q_T(x)
+&=\Phi(x)
++Q_\infty\left[(1-\rho(x))e^{-\kappa x}+\rho(x)\right]
+\left(1-e^{-\kappa(T-x)}\right)\\
+&=(1-\rho(x))\Phi(T)
++\rho(x)\left[\Phi(x)+\Phi(T-x)\right]
+\end{aligned}
+}
+$$ {#eq-one-review-final-quality}
+
+を得る。第1行はレビュー後の状態から進めた品質、第2行は基準品質とレビュー効果に分けた閉形式である。基準品質 $\Phi(T)$ に対する上乗せは
+
+$$
+Q_T(x)-\Phi(T)
+=\rho(x)\left[\Phi(x)+\Phi(T-x)-\Phi(T)\right]
+$$ {#eq-review-quality-uplift}
+
+である。指数型の $\Phi$ と @eq-review-effectiveness を代入すると、
+
+$$
+\boxed{
+Q_T(x)-\Phi(T)
+=Q_\infty\bar\rho
+\left(1-e^{-\lambda x}\right)
+\left(1-e^{-\kappa x}\right)
+\left(1-e^{-\kappa(T-x)}\right)
+}
+$$ {#eq-exponential-review-uplift}
+
+を得る。三つの因子は順に、レビュー準備度、レビュー前作業による成熟、レビュー後に改善を実現するための作業余地を表す。
+
+$\bar\rho=0$ では $Q_T(x)=\Phi(T)$ が全時刻で成立し、レビュー時刻は品質に関して無差別になる。$\bar\rho>0$ では、$\bar\rho$ が上乗せ全体を正の定数倍するため、品質最大時刻 $x_Q^*$ は一定である。最大効果量は改善幅を、成熟速度 $\lambda$ は改善を得る時刻を動かす。
+
+## 完全リセット・ベンチマーク
+
+レビュー時点から独立に $\rho\equiv1$ と置く理論ベンチマークでは、
+
+$$
+Q_T^{\mathrm{full}}(x)=\Phi(x)+\Phi(T-x)
+$$ {#eq-full-reset-quality}
+
+となる。$\Phi$ の凹性と対称性により、最大点は
+
+$$
+\boxed{x_{\mathrm{full}}^*=\frac{T}{2}}
+$$ {#eq-full-reset-optimum}
+
+である。この基準ケースの $\rho\equiv1$ は、有限の $\lambda$ と $\bar\rho=1$ を組み合わせたケースより強い介入を表す。後者には $\rho(x)=1-e^{-\lambda x}<1$ という準備度効果が残る。
+
+## 成熟度が最適時刻を後方へ動かす
+
+$Q_\infty>0$、$\kappa>0$、$\lambda>0$、$\bar\rho>0$ とする。@eq-exponential-review-uplift の対数微分から、内点の品質最大時刻は
+
+$$
+\boxed{
+\frac{\lambda}{e^{\lambda x}-1}
++\frac{\kappa}{e^{\kappa x}-1}
+=\frac{\kappa}{e^{\kappa(T-x)}-1}
+}
+$$ {#eq-quality-review-foc}
+
+を満たす。左辺から右辺を引いた関数を $H(x,\lambda)$ とする。$H$ は $x\in(0,T)$ で狭義単調減少し、$x=T/2$ では
+
+$$
+H(T/2,\lambda)
+=\frac{\lambda}{e^{\lambda T/2}-1}>0
+$$
+
+となり、$x\uparrow T$ では $H(x,\lambda)\to-\infty$ となる。したがって解は一意であり、
+
+$$
+\boxed{x_Q^*>\frac{T}{2}}
+$$ {#eq-quality-optimum-after-midpoint}
+
+が成立する。これは指数型品質曲線と成熟度付き部分リセットを組み合わせた本章のモデルに固有の結果である。
+
+また、固定した $x>0$ に対して $\lambda/(e^{\lambda x}-1)$ は $\lambda$ とともに低下する。陰関数定理より
+
+$$
+\frac{\partial x_Q^*}{\partial\lambda}<0
+$$ {#eq-readiness-comparative-statics}
+
+となる。レビュー準備度の立ち上がりが緩やかな仕事ほど、品質最大レビュー時刻は後方へ移る。
+
+## 品質曲線を動かす
+
+::::: {.concept-layout .review-model-layout}
+
+:::: {.concept-main}
+
+図では、成熟度付き部分リセットの $Q_T(x)$、基準線 $\Phi(T)$、理論上の完全リセット曲線を同じ軸で比較する。$x=T/2$ と $x_Q^*$ の位置を追うと、レビュー準備度が中点より後ろの解を生む仕組みが見える。
+
+$\lambda$ を動かすと $x_Q^*$ が移動し、$\bar\rho$ を動かすと品質上乗せの大きさが変わる。$\bar\rho=0$ の表示では、全レビュー時刻が同じ最終品質を与える状態をサマリで示す。
+
+::::
+
+:::: {.interactive-panel .review-model-panel aria-labelledby="quality-review-widget-heading"}
+
+### フィードバック効果を動かす {#quality-review-widget-heading .unnumbered .unlisted}
+
+```{ojs}
+//| label: fig-review-quality
+//| fig-cap: "レビュー前の成熟度に応じた最終品質、レビュー有効度、完全リセット・ベンチマークを示す。"
+//| echo: false
+{
+  const panel = renderQualityReviewWidget();
+  invalidation.then(() => panel.dispose());
+  return panel;
+}
+```
+
+::::
+
+:::::
+
+第2章で加わった問題構造は、レビューによる生産性回復である。次章では、レビュー時評価と最終品質を一つの総合評価へ統合する。

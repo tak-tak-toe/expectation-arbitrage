@@ -1,64 +1,40 @@
-import { reviewedQuality } from "../review-model/model.js";
+import { oneReviewOutcome } from "../review-model/model.js";
 import {
   DEADLINE,
   Q_MINIMUM,
+  MIN_PHASE,
   DEFAULT_TWO_TASK_PARAMETERS,
   PHASE_ORDERS,
   evaluateSchedule,
+  evaluateFixedOrderNlp,
+  normalizeParameters,
 } from "./model.js";
+import {
+  normalizeNlpOptions,
+  projectDurations,
+  solveLocalNlp,
+} from "./nlp.js";
 
-const DEFAULT_OPTIONS = Object.freeze({
-  populationSize: 48,
-  generations: 80,
-  differentialWeight: 0.72,
-  crossoverRate: 0.9,
-  polishStarts: 3,
-  polishInitialStep: 2,
-  polishMinimumStep: 0.002,
-  polishSweeps: 5,
-  seed: 0x5eed2a5,
+export { MIN_PHASE } from "./model.js";
+
+export const DEFAULT_OPTIMIZER_OPTIONS = Object.freeze({
+  latticeResolution: 5,
+  startsPerOrder: 8,
+  pairGridPoints: 321,
 });
 
-export const MIN_PHASE = 1e-4;
+export const SOLVER_STATUS_LABELS = Object.freeze({
+  converged_kkt: "best deterministic KKT candidate found",
+  feasible_iteration_limit: "best feasible deterministic local-solver result",
+  no_feasible_candidate_found: "no feasible candidate found by the deterministic search",
+});
 
-function stableOrderHash(order) {
-  let hash = 2166136261;
-  for (const character of order.join("")) {
-    hash ^= character.charCodeAt(0);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-function mulberry32(seed) {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) | 0;
-    let value = Math.imul(state ^ (state >>> 15), 1 | state);
-    value ^= value + Math.imul(value ^ (value >>> 7), 61 | value);
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-  };
+function objectiveForComparison(candidate) {
+  return candidate.overallCenteredJ ?? candidate.overallJ ?? candidate.objectiveValue;
 }
 
-function repair(vector) {
-  const repaired = vector.map(value => {
-    if (!Number.isFinite(value)) return MIN_PHASE;
-    return Math.max(MIN_PHASE, value);
-  });
-  let total = repaired.reduce((sum, value) => sum + value, 0);
-  if (total > DEADLINE) {
-    const movable = repaired.map(value => value - MIN_PHASE);
-    const movableTotal = movable.reduce((sum, value) => sum + value, 0);
-    const scale = (DEADLINE - repaired.length * MIN_PHASE) / movableTotal;
-    for (let index = 0; index < repaired.length; index += 1) {
-      repaired[index] = MIN_PHASE + movable[index] * scale;
-    }
-    total = repaired.reduce((sum, value) => sum + value, 0);
-    if (total > DEADLINE) {
-      const largest = repaired.indexOf(Math.max(...repaired));
-      repaired[largest] -= total - DEADLINE;
-    }
-  }
-  return repaired;
+function violationForComparison(candidate) {
+  return candidate.violation.normalizedMaximum ?? candidate.violation.normalizedTotal;
 }
 
 function lexicographicDurations(left, right) {
@@ -68,21 +44,25 @@ function lexicographicDurations(left, right) {
   return 0;
 }
 
+function candidateClass(candidate) {
+  if (candidate.feasible && candidate.solverStatus === "converged_kkt") return 0;
+  if (candidate.feasible) return 1;
+  return 2;
+}
+
 /** Sort comparator: a negative result means left is the preferred candidate. */
 export function compareCandidates(left, right) {
-  if (left.feasible !== right.feasible) return left.feasible ? -1 : 1;
-  if (left.feasible) {
-    if (left.objectiveValue !== right.objectiveValue) {
-      return right.objectiveValue - left.objectiveValue;
-    }
-  } else {
-    const leftViolation = left.violation.normalizedTotal;
-    const rightViolation = right.violation.normalizedTotal;
-    if (leftViolation !== rightViolation) return leftViolation - rightViolation;
-    if (left.objectiveValue !== right.objectiveValue) {
-      return right.objectiveValue - left.objectiveValue;
-    }
+  const classDifference = candidateClass(left) - candidateClass(right);
+  if (classDifference !== 0) return classDifference;
+  if (!left.feasible) {
+    const violationDifference = violationForComparison(left) - violationForComparison(right);
+    if (Math.abs(violationDifference) > 1e-14) return violationDifference;
   }
+  const objectiveDifference = objectiveForComparison(right) - objectiveForComparison(left);
+  if (Math.abs(objectiveDifference) > 1e-10) return objectiveDifference;
+  const leftKkt = left.solverDiagnostics?.kktResidual ?? Number.POSITIVE_INFINITY;
+  const rightKkt = right.solverDiagnostics?.kktResidual ?? Number.POSITIVE_INFINITY;
+  if (Math.abs(leftKkt - rightKkt) > 1e-14) return leftKkt - rightKkt;
   if (left.totalWork !== right.totalWork) return left.totalWork - right.totalWork;
   if ((left.orderIndex ?? 0) !== (right.orderIndex ?? 0)) {
     return (left.orderIndex ?? 0) - (right.orderIndex ?? 0);
@@ -90,248 +70,291 @@ export function compareCandidates(left, right) {
   return lexicographicDurations(left.durations, right.durations);
 }
 
-function requiredAfterWork(before, worker) {
+function requiredAfterWork(before, worker, minimumPhase) {
   const maximumAfter = DEADLINE - before;
-  if (maximumAfter < MIN_PHASE) return Number.POSITIVE_INFINITY;
-  if (reviewedQuality(before, MIN_PHASE, worker) >= Q_MINIMUM) return MIN_PHASE;
-  if (reviewedQuality(before, maximumAfter, worker) < Q_MINIMUM) {
+  if (maximumAfter < minimumPhase) return Number.POSITIVE_INFINITY;
+  if (oneReviewOutcome(before, minimumPhase, worker).finalQuality >= Q_MINIMUM) {
+    return minimumPhase;
+  }
+  if (oneReviewOutcome(before, maximumAfter, worker).finalQuality < Q_MINIMUM) {
     return Number.POSITIVE_INFINITY;
   }
-  let low = MIN_PHASE;
-  let high = maximumAfter;
-  for (let iteration = 0; iteration < 52; iteration += 1) {
-    const middle = (low + high) / 2;
-    if (reviewedQuality(before, middle, worker) >= Q_MINIMUM) high = middle;
-    else low = middle;
+  let lower = minimumPhase;
+  let upper = maximumAfter;
+  for (let iteration = 0; iteration < 56; iteration += 1) {
+    const middle = (lower + upper) / 2;
+    if (oneReviewOutcome(before, middle, worker).finalQuality >= Q_MINIMUM) upper = middle;
+    else lower = middle;
   }
-  return high;
+  return upper;
 }
 
-function minimumQualityWorkPair(worker) {
-  const gridPoints = 320;
-  let best = null;
-  const upper = DEADLINE - MIN_PHASE;
-  const spacing = (upper - MIN_PHASE) / (gridPoints - 1);
-  const consider = before => {
-    if (before < MIN_PHASE || before > upper) return false;
-    const after = requiredAfterWork(before, worker);
-    if (!Number.isFinite(after)) return false;
-    const candidate = { before, after, total: before + after };
-    if (!best || candidate.total < best.total) {
-      best = candidate;
-      return true;
-    }
-    return false;
+/** Deterministic one-dimensional construction of a quality-feasible work pair. */
+export function minimumQualityWorkPair(
+  worker,
+  { minimumPhase = MIN_PHASE, gridPoints = 321 } = {},
+) {
+  if (!Number.isFinite(minimumPhase) || minimumPhase <= 0
+      || 2 * minimumPhase >= DEADLINE) {
+    throw new RangeError("minimumPhase must be positive and leave two phases before the deadline.");
+  }
+  if (!Number.isInteger(gridPoints) || gridPoints < 33) {
+    throw new RangeError("gridPoints must be an integer of at least 33.");
+  }
+  const upperBefore = DEADLINE - minimumPhase;
+  const spacing = (upperBefore - minimumPhase) / (gridPoints - 1);
+  const pairAt = before => {
+    if (before < minimumPhase || before > upperBefore) return null;
+    const after = requiredAfterWork(before, worker, minimumPhase);
+    if (!Number.isFinite(after)) return null;
+    return { before, after, total: before + after };
   };
+  let best = null;
   for (let index = 0; index < gridPoints; index += 1) {
-    consider(MIN_PHASE + spacing * index);
+    const candidate = pairAt(minimumPhase + spacing * index);
+    if (candidate && (!best || candidate.total < best.total)) best = candidate;
   }
   if (!best) return null;
 
-  let step = spacing;
-  while (step >= 1e-6) {
-    const center = best.before;
-    const improvedLeft = consider(center - step);
-    const improvedRight = consider(center + step);
-    if (!improvedLeft && !improvedRight) step /= 2;
+  let left = Math.max(minimumPhase, best.before - spacing);
+  let right = Math.min(upperBefore, best.before + spacing);
+  const ratio = (Math.sqrt(5) - 1) / 2;
+  let innerLeft = right - ratio * (right - left);
+  let innerRight = left + ratio * (right - left);
+  let leftPair = pairAt(innerLeft);
+  let rightPair = pairAt(innerRight);
+  for (let iteration = 0; iteration < 72; iteration += 1) {
+    const leftValue = leftPair?.total ?? Number.POSITIVE_INFINITY;
+    const rightValue = rightPair?.total ?? Number.POSITIVE_INFINITY;
+    if (leftValue <= rightValue) {
+      right = innerRight;
+      innerRight = innerLeft;
+      rightPair = leftPair;
+      innerLeft = right - ratio * (right - left);
+      leftPair = pairAt(innerLeft);
+    } else {
+      left = innerLeft;
+      innerLeft = innerRight;
+      leftPair = rightPair;
+      innerRight = left + ratio * (right - left);
+      rightPair = pairAt(innerRight);
+    }
+  }
+  for (const candidate of [leftPair, rightPair, pairAt(left), pairAt(right)]) {
+    if (candidate && candidate.total < best.total) best = candidate;
   }
   return best;
 }
 
-function simplexSample(random, includeIdle) {
-  const componentCount = includeIdle ? 5 : 4;
-  const weights = [];
-  for (let index = 0; index < componentCount; index += 1) {
-    weights.push(-Math.log(Math.max(Number.EPSILON, random())));
+function compositions(total, parts, prefix = [], result = []) {
+  if (parts === 1) {
+    result.push([...prefix, total]);
+    return result;
   }
-  const total = weights.reduce((sum, value) => sum + value, 0);
-  const available = DEADLINE - 4 * MIN_PHASE;
-  return weights.slice(0, 4).map(weight => MIN_PHASE + available * weight / total);
+  for (let value = 0; value <= total; value += 1) {
+    compositions(total - value, parts - 1, [...prefix, value], result);
+  }
+  return result;
 }
 
-function seedVectors(random, populationSize, feasiblePair) {
-  const vectors = [
-    [DEADLINE / 4, DEADLINE / 4, DEADLINE / 4, DEADLINE / 4],
-    [4, 4, 4, 4],
+function structuredStartPool(worker, options, feasiblePair) {
+  const minimumPhase = options.minimumPhase;
+  const capacity = DEADLINE - 4 * minimumPhase;
+  const starts = [
+    Array(4).fill(DEADLINE / 4),
+    Array(4).fill(DEADLINE / 5),
     [6, 4, 6, 4],
     [4, 6, 4, 6],
   ];
-  if (feasiblePair && 2 * feasiblePair.total <= DEADLINE) {
-    vectors.unshift([
+  if (feasiblePair && 2 * feasiblePair.total <= DEADLINE + 1e-9) {
+    const base = [
       feasiblePair.before,
       feasiblePair.after,
       feasiblePair.before,
       feasiblePair.after,
-    ]);
-  }
-  let sampleIndex = 0;
-  while (vectors.length < populationSize) {
-    vectors.push(simplexSample(random, sampleIndex % 3 === 0));
-    sampleIndex += 1;
-  }
-  return vectors.slice(0, populationSize).map(repair);
-}
-
-function distinctPopulationIndices(random, populationSize, excluded, count) {
-  const indices = [];
-  while (indices.length < count) {
-    const index = Math.floor(random() * populationSize);
-    if (index !== excluded && !indices.includes(index)) indices.push(index);
-  }
-  return indices;
-}
-
-function candidateEvaluator(order, orderIndex, parameters, objective, counter) {
-  return vector => {
-    counter.count += 1;
-    return {
-      ...evaluateSchedule(order, repair(vector), parameters, { objective }),
-      orderIndex,
-    };
-  };
-}
-
-function neighborVectors(vector, step) {
-  const neighbors = [];
-  for (let index = 0; index < vector.length; index += 1) {
-    for (const direction of [-1, 1]) {
-      const candidate = [...vector];
-      candidate[index] += direction * step;
-      neighbors.push(candidate);
+    ];
+    starts.push(base);
+    const slack = Math.max(0, DEADLINE - base.reduce((sum, value) => sum + value, 0));
+    starts.push(base.map(value => value + slack / 4));
+    for (let dimension = 0; dimension < 4; dimension += 1) {
+      const boundary = [...base];
+      boundary[dimension] += slack;
+      starts.push(boundary);
     }
   }
-  for (let from = 0; from < vector.length; from += 1) {
-    for (let to = 0; to < vector.length; to += 1) {
-      if (from === to) continue;
-      const candidate = [...vector];
-      candidate[from] -= step;
-      candidate[to] += step;
-      neighbors.push(candidate);
-    }
+  for (const allocation of compositions(options.latticeResolution, 5)) {
+    starts.push(allocation.slice(0, 4).map(value => (
+      minimumPhase + capacity * value / options.latticeResolution
+    )));
   }
-  neighbors.push(vector.map(value => value * (1 - step / DEADLINE)));
-  neighbors.push(vector.map(value => value * (1 + step / DEADLINE)));
-  return neighbors;
+  const unique = new Map();
+  for (const start of starts) {
+    const projected = projectDurations(start, minimumPhase, DEADLINE);
+    const key = projected.map(value => value.toFixed(12)).join(",");
+    if (!unique.has(key)) unique.set(key, projected);
+  }
+  return [...unique.values()];
 }
 
-function polish(start, evaluate, options) {
-  let current = start;
-  let step = options.polishInitialStep;
-  while (step >= options.polishMinimumStep) {
-    let sweep = 0;
-    let improved = true;
-    while (improved && sweep < options.polishSweeps) {
-      improved = false;
-      let bestNeighbor = current;
-      for (const vector of neighborVectors(current.durations, step)) {
-        const candidate = evaluate(vector);
-        if (compareCandidates(candidate, bestNeighbor) < 0) bestNeighbor = candidate;
+function startComparator(left, right) {
+  if (left.evaluation.feasible !== right.evaluation.feasible) {
+    return left.evaluation.feasible ? -1 : 1;
+  }
+  const violation = left.evaluation.violation.normalizedMaximum
+    - right.evaluation.violation.normalizedMaximum;
+  if (Math.abs(violation) > 1e-14) return violation;
+  const objective = right.evaluation.overallJ - left.evaluation.overallJ;
+  if (Math.abs(objective) > 1e-10) return objective;
+  return lexicographicDurations(left.durations, right.durations);
+}
+
+function squaredDistance(left, right) {
+  return left.reduce((sum, value, index) => sum + (value - right[index]) ** 2, 0);
+}
+
+function selectStarts(order, parameters, pool, count, minimumPhase) {
+  const ranked = pool.map(durations => ({
+    durations,
+    evaluation: evaluateSchedule(order, durations, parameters, { minimumPhase }),
+  })).sort(startComparator);
+  const selected = ranked.slice(0, Math.min(3, count));
+  const candidates = ranked.slice(0, Math.max(count * 8, 48));
+  while (selected.length < count && selected.length < candidates.length) {
+    let choice = null;
+    let choiceDistance = -1;
+    for (const candidate of candidates) {
+      if (selected.includes(candidate)) continue;
+      const distance = Math.min(...selected.map(item => (
+        squaredDistance(candidate.durations, item.durations)
+      )));
+      if (distance > choiceDistance + 1e-12) {
+        choice = candidate;
+        choiceDistance = distance;
       }
-      if (compareCandidates(bestNeighbor, current) < 0) {
-        current = bestNeighbor;
-        improved = true;
-      }
-      sweep += 1;
     }
-    step /= 2;
+    if (!choice) break;
+    selected.push(choice);
   }
-  return current;
+  return selected.map(item => item.durations);
 }
 
-function optimizeOrder(order, orderIndex, parameters, objective, options, feasiblePair) {
-  const random = mulberry32((options.seed ^ stableOrderHash(order)) >>> 0);
-  const counter = { count: 0 };
-  const evaluate = candidateEvaluator(order, orderIndex, parameters, objective, counter);
-  let population = seedVectors(random, options.populationSize, feasiblePair).map(evaluate);
-
-  for (let generation = 0; generation < options.generations; generation += 1) {
-    const next = [];
-    for (let targetIndex = 0; targetIndex < population.length; targetIndex += 1) {
-      const [first, second, third] = distinctPopulationIndices(
-        random,
-        population.length,
-        targetIndex,
-        3,
-      );
-      const mutant = population[first].durations.map((value, dimension) => (
-        value + options.differentialWeight
-          * (population[second].durations[dimension] - population[third].durations[dimension])
-      ));
-      const forcedDimension = Math.floor(random() * 4);
-      const trial = population[targetIndex].durations.map((value, dimension) => (
-        dimension === forcedDimension || random() < options.crossoverRate
-          ? mutant[dimension]
-          : value
-      ));
-      const evaluatedTrial = evaluate(trial);
-      next.push(compareCandidates(evaluatedTrial, population[targetIndex]) < 0
-        ? evaluatedTrial
-        : population[targetIndex]);
-    }
-    population = next;
-  }
-
-  population.sort(compareCandidates);
-  let best = population[0];
-  const seen = new Set();
-  let polished = 0;
-  for (const candidate of population) {
-    const key = candidate.durations.join(",");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const result = polish(candidate, evaluate, options);
-    if (compareCandidates(result, best) < 0) best = result;
-    polished += 1;
-    if (polished >= options.polishStarts) break;
-  }
+function solveOrder(order, orderIndex, parameters, pool, options) {
+  const starts = selectStarts(
+    order,
+    parameters,
+    pool,
+    options.startsPerOrder,
+    options.minimumPhase,
+  );
+  const evaluate = durations => evaluateFixedOrderNlp(
+    order,
+    durations,
+    parameters,
+    { minimumPhase: options.minimumPhase },
+  );
+  const localResults = starts.map(start => solveLocalNlp(evaluate, start, options));
+  const candidates = localResults.map(local => ({
+    ...local.point.evaluation,
+    feasible: local.feasible && local.point.evaluation.feasible,
+    orderIndex,
+    solverStatus: local.solverStatus,
+    statusLabel: SOLVER_STATUS_LABELS[local.solverStatus],
+    approximate: true,
+    globalCertificate: false,
+    solverDiagnostics: local.diagnostics,
+  }));
+  candidates.sort(compareCandidates);
+  const best = candidates[0];
   return {
     ...best,
     searchDiagnostics: {
-      evaluations: counter.count,
-      populationSize: options.populationSize,
-      generations: options.generations,
-      polishedStarts: polished,
+      startsTried: starts.length,
+      convergedStarts: candidates.filter(candidate => (
+        candidate.solverStatus === "converged_kkt"
+      )).length,
+      feasibleStarts: candidates.filter(candidate => candidate.feasible).length,
+      evaluations: localResults.reduce((sum, result) => (
+        sum + result.diagnostics.evaluations
+      ), 0),
     },
   };
 }
 
-/** Deterministically approximate the best feasible schedule across all six orders. */
-export function optimizeTwoTasks(
-  parameters = DEFAULT_TWO_TASK_PARAMETERS,
-  { objective, ...overrides } = {},
-) {
-  const options = { ...DEFAULT_OPTIONS, ...overrides };
-  if (options.populationSize < 4) {
-    throw new RangeError("populationSize must be at least four.");
+/** Validate and fill both multistart and continuous-solver options. */
+export function normalizeOptimizerOptions(overrides = {}) {
+  if (!overrides || typeof overrides !== "object") {
+    throw new TypeError("optimizer options must be an object.");
   }
-  const feasiblePair = minimumQualityWorkPair(parameters.worker);
-  const orderResults = PHASE_ORDERS.map((order, orderIndex) => optimizeOrder(
+  const options = {
+    ...DEFAULT_OPTIMIZER_OPTIONS,
+    ...normalizeNlpOptions({
+      ...overrides,
+      minimumPhase: overrides.minimumPhase ?? MIN_PHASE,
+    }),
+  };
+  if (!Number.isInteger(options.latticeResolution) || options.latticeResolution < 2) {
+    throw new RangeError("latticeResolution must be an integer of at least two.");
+  }
+  if (!Number.isInteger(options.startsPerOrder) || options.startsPerOrder < 1) {
+    throw new RangeError("startsPerOrder must be a positive integer.");
+  }
+  if (!Number.isInteger(options.pairGridPoints) || options.pairGridPoints < 33) {
+    throw new RangeError("pairGridPoints must be an integer of at least 33.");
+  }
+  return options;
+}
+
+/**
+ * Enumerate the six orders exactly and solve every continuous problem locally
+ * from a fixed, structured set of starts.
+ */
+export function optimizeTwoTasks(parameters = DEFAULT_TWO_TASK_PARAMETERS, overrides = {}) {
+  const normalized = normalizeParameters(parameters);
+  const options = normalizeOptimizerOptions(overrides);
+  const minimumPhase = options.minimumPhase;
+  const feasiblePair = minimumQualityWorkPair(normalized.worker, {
+    minimumPhase,
+    gridPoints: options.pairGridPoints,
+  });
+  const fullOptions = { ...options, minimumPhase };
+  const pool = structuredStartPool(normalized.worker, fullOptions, feasiblePair);
+  const orderResults = PHASE_ORDERS.map((order, orderIndex) => solveOrder(
     order,
     orderIndex,
-    parameters,
-    objective,
-    options,
-    feasiblePair,
+    normalized,
+    pool,
+    fullOptions,
   ));
   const best = [...orderResults].sort(compareCandidates)[0];
-  const totalEvaluations = orderResults.reduce(
-    (sum, result) => sum + result.searchDiagnostics.evaluations,
-    0,
-  );
+  const totalEvaluations = orderResults.reduce((sum, result) => (
+    sum + result.searchDiagnostics.evaluations
+  ), 0);
   return {
     feasible: best.feasible,
+    solverStatus: best.solverStatus,
+    statusLabel: best.statusLabel,
+    approximate: true,
+    globalCertificate: false,
     best,
     orderResults,
     diagnostics: {
+      algorithm: "deterministic structured-multistart projected augmented-Lagrangian with BFGS",
+      phaseOrderEnumeration: "exact",
+      phaseOrdersEvaluated: orderResults.length,
+      continuousSolver: "local",
       approximate: true,
-      algorithm: "seeded differential evolution with deterministic pattern polishing",
-      seed: options.seed,
-      minimumPhase: MIN_PHASE,
-      populationSize: options.populationSize,
-      generations: options.generations,
+      globalCertificate: false,
+      minimumPhase,
+      structuredStarts: pool.length,
+      startsPerOrder: options.startsPerOrder,
       totalEvaluations,
       feasibleOrders: orderResults.filter(result => result.feasible).length,
-      feasibilitySeed: feasiblePair,
+      convergedOrders: orderResults.filter(result => (
+        result.solverStatus === "converged_kkt"
+      )).length,
+      feasibilityStart: feasiblePair,
+      status: best.solverStatus,
+      statusLabel: best.statusLabel,
     },
   };
 }

@@ -1,976 +1,346 @@
 import {
-  DEFAULT_TWO_TASK_PARAMETERS,
   DEADLINE,
   Q_MINIMUM,
-  qualityAtCalendarTime,
-  expectationAtCalendarTime,
+  DEFAULT_TWO_TASK_PARAMETERS,
 } from "./model.js";
 import { optimizeTwoTasks } from "./optimizer.js";
+import {
+  htmlElement,
+  svgElement,
+  formatNumber,
+  setOutput,
+  createWidgetRoot,
+  createControls,
+  createMetrics,
+  createPanel,
+  mountResponsive,
+} from "../review-model/widget-utils.js";
 
-const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
-const RECOMPUTE_DELAY = 100;
-const TASKS = Object.freeze(["A", "B"]);
-let nextWidgetId = 0;
+const RECOMPUTE_DELAY = 120;
+const DEFAULTS = Object.freeze({
+  qInfinity: DEFAULT_TWO_TASK_PARAMETERS.worker.qInfinity,
+  kappa: DEFAULT_TWO_TASK_PARAMETERS.worker.kappa,
+  rhoBar: DEFAULT_TWO_TASK_PARAMETERS.worker.rhoBar,
+  lambda: DEFAULT_TWO_TASK_PARAMETERS.worker.lambda,
+  e0A: DEFAULT_TWO_TASK_PARAMETERS.managers.A.e0,
+  betaA: DEFAULT_TWO_TASK_PARAMETERS.managers.A.beta,
+  e0B: DEFAULT_TWO_TASK_PARAMETERS.managers.B.e0,
+  betaB: DEFAULT_TWO_TASK_PARAMETERS.managers.B.beta,
+});
 
-const STYLES = `
-.two-task-widget {
-  --tto-a: #087e8b;
-  --tto-b: #b5571c;
-  --tto-accent: #8d647d;
-  --tto-muted: #65717a;
-  --tto-border: rgba(8, 126, 139, .28);
-  --tto-surface: rgba(8, 126, 139, .055);
-  --tto-grid: currentColor;
-  color: inherit;
-  container-type: inline-size;
-  font-family: inherit;
-  min-width: 0;
-}
-.two-task-widget * { box-sizing: border-box; }
-.two-task-widget .tto-header { display: grid; gap: .45rem; margin: 0 0 1rem; }
-.two-task-widget .tto-title { margin: 0; font-size: 1.18rem; font-weight: 700; line-height: 1.35; }
-.two-task-widget .tto-intro,
-.two-task-widget .tto-note { margin: 0; font-size: .88rem; line-height: 1.55; }
-.two-task-widget .tto-facts { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0; }
-.two-task-widget .tto-fact,
-.two-task-widget .tto-status {
-  border: 1px solid var(--tto-border);
-  border-radius: 999px;
-  background: var(--tto-surface);
-  padding: .22rem .55rem;
-  font-size: .8rem;
-  line-height: 1.35;
-}
-.two-task-widget .tto-status { justify-self: start; margin: .15rem 0 0; font-weight: 650; }
-.two-task-widget .tto-status[data-state="ready"] { border-color: var(--tto-a); }
-.two-task-widget .tto-status[data-state="outside"] { border-color: var(--tto-b); }
-.two-task-widget .tto-status[data-state="error"] { border-color: var(--tto-accent); }
-.two-task-widget .tto-control-form { margin: 0 0 1.1rem; }
-.two-task-widget .tto-controls {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
-  gap: .75rem;
-}
-.two-task-widget .tto-control-group {
-  min-width: 0;
-  margin: 0;
-  padding: .8rem;
-  border: 1px solid var(--tto-border);
-  border-radius: .4rem;
-  background: var(--tto-surface);
-}
-.two-task-widget .tto-control-group legend { padding: 0 .25rem; font-weight: 700; }
-.two-task-widget .tto-group-note { margin: 0 0 .65rem; font-size: .78rem; line-height: 1.45; }
-.two-task-widget .tto-control + .tto-control { margin-top: .62rem; }
-.two-task-widget .tto-control label {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: .2rem .65rem;
-  margin: 0 0 .12rem;
-  font-size: .84rem;
-  line-height: 1.4;
-}
-.two-task-widget .tto-control output { font-variant-numeric: tabular-nums; font-weight: 700; }
-.two-task-widget .tto-control input[type="range"] {
-  display: block;
-  width: 100%;
-  margin: .2rem 0 .05rem;
-  accent-color: var(--tto-a);
-}
-.two-task-widget .tto-control input[type="range"]:focus-visible,
-.two-task-widget .tto-reset:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
-.two-task-widget .tto-range { color: var(--tto-muted); font-size: .72rem; }
-.two-task-widget .tto-actions { display: flex; justify-content: flex-end; margin-top: .65rem; }
-.two-task-widget .tto-reset {
-  border: 1px solid var(--tto-border);
-  border-radius: .35rem;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-  font-size: .8rem;
-  padding: .38rem .65rem;
-}
-.two-task-widget .tto-reset:hover { background: var(--tto-surface); }
-.two-task-widget .tto-section { min-width: 0; margin: 1.2rem 0; }
-.two-task-widget .tto-section-title { margin: 0 0 .55rem; font-size: 1rem; line-height: 1.35; }
-.two-task-widget .tto-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: .65rem;
-}
-.two-task-widget .tto-metric {
-  min-width: 0;
-  padding: .72rem;
-  border: 1px solid var(--tto-border);
-  border-radius: .38rem;
-  background: var(--tto-surface);
-}
-.two-task-widget .tto-metric-label { margin: 0 0 .18rem; font-size: .76rem; line-height: 1.35; }
-.two-task-widget .tto-metric-value {
-  display: block;
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.28;
-  overflow-wrap: anywhere;
-}
-.two-task-widget .tto-metric--order .tto-metric-value { font-size: .96rem; line-height: 1.45; }
-.two-task-widget .tto-diagnostics {
-  border-left: 3px solid var(--tto-a);
-  background: var(--tto-surface);
-  margin: .7rem 0 0;
-  padding: .48rem .7rem;
-  font-size: .82rem;
-  line-height: 1.5;
-}
-.two-task-widget .tto-diagnostics[data-state="outside"] { border-left-color: var(--tto-b); }
-.two-task-widget .tto-figure { min-width: 0; margin: 0; }
-.two-task-widget .tto-figure + .tto-figure { margin-top: .9rem; }
-.two-task-widget .tto-caption { margin: 0 0 .35rem; font-size: .86rem; font-weight: 650; line-height: 1.4; }
-.two-task-widget .tto-chart-host { min-width: 0; }
-.two-task-widget svg { display: block; width: 100%; height: auto; overflow: visible; font-family: inherit; }
-.two-task-widget svg text { fill: currentColor; font-size: 11px; }
-.two-task-widget svg .tto-axis-title { font-size: 12px; font-weight: 600; }
-.two-task-widget .tto-axis { fill: none; stroke: currentColor; stroke-width: 1; opacity: .58; }
-.two-task-widget .tto-grid { stroke: var(--tto-grid); stroke-width: 1; opacity: .12; }
-.two-task-widget .tto-quality,
-.two-task-widget .tto-expectation { fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.two-task-widget .tto-quality { stroke-width: 2.7; }
-.two-task-widget .tto-quality-a { stroke: var(--tto-a); }
-.two-task-widget .tto-quality-b { stroke: var(--tto-b); }
-.two-task-widget .tto-expectation { stroke: var(--tto-accent); stroke-width: 2.2; stroke-dasharray: 7 4; }
-.two-task-widget .tto-threshold { stroke: currentColor; stroke-width: 1.5; stroke-dasharray: 8 3 2 3; opacity: .58; }
-.two-task-widget .tto-active-a { fill: var(--tto-a); opacity: .07; }
-.two-task-widget .tto-active-b { fill: var(--tto-b); opacity: .07; }
-.two-task-widget .tto-point { vector-effect: non-scaling-stroke; }
-.two-task-widget .tto-point-a { fill: var(--tto-a); stroke: var(--tto-a); }
-.two-task-widget .tto-point-b { fill: var(--tto-b); stroke: var(--tto-b); }
-.two-task-widget .tto-review-point { fill: transparent; stroke-width: 2.2; }
-.two-task-widget .tto-final-point { stroke: Canvas; stroke-width: 1.4; }
-.two-task-widget .tto-phase-a { fill: var(--tto-a); }
-.two-task-widget .tto-phase-b { fill: var(--tto-b); }
-.two-task-widget .tto-idle { fill: currentColor; opacity: .13; }
-.two-task-widget svg .tto-phase-label { fill: white; font-size: 11px; font-weight: 750; }
-.two-task-widget .tto-event-line { stroke-width: 1.2; stroke-dasharray: 2 3; opacity: .76; }
-.two-task-widget .tto-event-a { fill: var(--tto-a); stroke: var(--tto-a); }
-.two-task-widget .tto-event-b { fill: var(--tto-b); stroke: var(--tto-b); }
-.two-task-widget .tto-empty-label { font-size: 12px; font-weight: 650; }
-.two-task-widget .tto-legends {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .32rem .85rem;
-  margin: .35rem 0 0;
-  padding: 0;
-  list-style: none;
-  font-size: .76rem;
-  line-height: 1.4;
-}
-.two-task-widget .tto-legends li { display: flex; align-items: center; gap: .35rem; }
-.two-task-widget .tto-swatch { display: inline-block; width: 1.55rem; flex: 0 0 1.55rem; border-top: 3px solid currentColor; }
-.two-task-widget .tto-swatch-a { color: var(--tto-a); }
-.two-task-widget .tto-swatch-b { color: var(--tto-b); }
-.two-task-widget .tto-swatch-expectation { color: var(--tto-accent); border-top-style: dashed; }
-.two-task-widget .tto-swatch-threshold { opacity: .6; border-top-style: dotted; }
-.two-task-widget .tto-swatch-active { width: 1rem; flex-basis: 1rem; height: .75rem; border: 1px solid currentColor; background: var(--tto-surface); }
-.two-task-widget .tto-swatch-stage2 {
-  width: 1rem;
-  flex-basis: 1rem;
-  height: .75rem;
-  border: 1px solid currentColor;
-  background: repeating-linear-gradient(135deg, transparent 0 3px, currentColor 3px 4px);
-  opacity: .55;
-}
-.two-task-widget .tto-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
-.two-task-widget .tto-table-wrap { min-width: 0; }
-.two-task-widget .tto-table { width: 100%; border-collapse: collapse; font-size: .78rem; font-variant-numeric: tabular-nums; }
-.two-task-widget .tto-table caption { padding: 0 0 .45rem; text-align: left; font-weight: 650; }
-.two-task-widget .tto-table th,
-.two-task-widget .tto-table td { border-bottom: 1px solid var(--tto-border); padding: .48rem .38rem; text-align: right; vertical-align: top; }
-.two-task-widget .tto-table thead th { background: var(--tto-surface); font-weight: 650; line-height: 1.35; }
-.two-task-widget .tto-table th:first-child,
-.two-task-widget .tto-table td:first-child { text-align: left; }
-.two-task-widget .tto-table tbody th { color: inherit; font-weight: 750; }
-.two-task-widget .tto-table-empty { padding: 1rem !important; text-align: center !important; }
-.quarto-dark .two-task-widget,
-[data-bs-theme="dark"] .two-task-widget {
-  --tto-a: #62cbd3;
-  --tto-b: #efa069;
-  --tto-accent: #d6a9ca;
-  --tto-muted: #b6c0c7;
-  --tto-border: rgba(255, 255, 255, .22);
-  --tto-surface: rgba(255, 255, 255, .055);
-}
-@container (max-width: 760px) {
-  .two-task-widget .tto-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .two-task-widget .tto-chart-grid { grid-template-columns: minmax(0, 1fr); }
-}
-@container (max-width: 640px) {
-  .two-task-widget .tto-table,
-  .two-task-widget .tto-table tbody,
-  .two-task-widget .tto-table tr,
-  .two-task-widget .tto-table th,
-  .two-task-widget .tto-table td { display: block; width: 100%; }
-  .two-task-widget .tto-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
-  .two-task-widget .tto-table tbody tr { margin: 0 0 .7rem; border: 1px solid var(--tto-border); border-radius: .38rem; overflow: hidden; }
-  .two-task-widget .tto-table tbody th { padding: .55rem .65rem; background: var(--tto-surface); }
-  .two-task-widget .tto-table tbody td {
-    display: grid;
-    grid-template-columns: minmax(8.5rem, 1fr) auto;
-    gap: .7rem;
-    padding: .42rem .65rem;
-    text-align: right;
-  }
-  .two-task-widget .tto-table tbody td::before { content: attr(data-label); text-align: left; font-weight: 600; }
-  .two-task-widget .tto-table-empty::before { content: none !important; }
-}
-@container (max-width: 430px) {
-  .two-task-widget .tto-metrics { grid-template-columns: minmax(0, 1fr); }
-}
-@media (max-width: 640px) {
-  .two-task-widget .tto-chart-grid { grid-template-columns: minmax(0, 1fr); }
-}
-@media print {
-  .two-task-widget .tto-control-form,
-  .two-task-widget .tto-reset { display: none; }
-  .two-task-widget .tto-chart-grid { grid-template-columns: minmax(0, 1fr); }
-}
+const CONTROLS = Object.freeze([
+  { key: "qInfinity", label: "品質上限 Q∞", min: 70, max: 100, step: 1, decimals: 0 },
+  { key: "kappa", label: "品質改善速度 κ", min: 0.1, max: 0.6, step: 0.01, decimals: 2 },
+  { key: "rhoBar", label: "最大レビュー効果 ρ̄", min: 0.1, max: 1, step: 0.05, decimals: 2 },
+  { key: "lambda", label: "成熟速度 λ", min: 0.05, max: 0.8, step: 0.01, decimals: 2 },
+  { key: "e0A", label: "A の初期要求 E₀,A", min: 0, max: 80, step: 1, decimals: 0 },
+  { key: "betaA", label: "A の期待上昇率 βA", min: 0, max: 10, step: 0.25, decimals: 2 },
+  { key: "e0B", label: "B の初期要求 E₀,B", min: 0, max: 80, step: 1, decimals: 0 },
+  { key: "betaB", label: "B の期待上昇率 βB", min: 0, max: 10, step: 0.25, decimals: 2 },
+]);
+
+const EXTRA_STYLES = `
+.model-widget .solver-section { min-width: 0; margin: 1rem 0; }
+.model-widget .solver-section-title { margin: 0 0 .45rem; font-size: .9rem; font-weight: 700; }
+.model-widget .solver-phase-a { fill: var(--mw-primary); }
+.model-widget .solver-phase-b { fill: var(--mw-secondary); }
+.model-widget .solver-idle { fill: currentColor; opacity: .1; }
+.model-widget .solver-phase-label { fill: white; font-size: 11px; font-weight: 750; }
+.model-widget .solver-event { stroke: currentColor; stroke-width: 1; stroke-dasharray: 3 3; opacity: .62; }
+.model-widget .solver-event-label { font-size: 9px; }
+.model-widget .solver-table-wrap { max-width: 100%; overflow-x: auto; }
+.model-widget .solver-table { width: 100%; border-collapse: collapse; font-size: .73rem; font-variant-numeric: tabular-nums; }
+.model-widget .solver-table caption { padding: 0 0 .35rem; text-align: left; font-weight: 650; }
+.model-widget .solver-table th,
+.model-widget .solver-table td { border-bottom: 1px solid var(--mw-border); padding: .4rem .34rem; text-align: right; vertical-align: top; }
+.model-widget .solver-table thead th { background: var(--mw-surface); font-weight: 650; }
+.model-widget .solver-table th:first-child,
+.model-widget .solver-table td:first-child { text-align: left; }
+.model-widget .solver-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; }
 `;
 
-function htmlElement(name, className, content) {
-  const element = document.createElement(name);
-  if (className) element.className = className;
-  if (content !== undefined) element.textContent = content;
-  return element;
+function parameters(state) {
+  return {
+    worker: {
+      qInfinity: state.qInfinity,
+      kappa: state.kappa,
+      rhoBar: state.rhoBar,
+      lambda: state.lambda,
+    },
+    managers: {
+      A: { e0: state.e0A, beta: state.betaA },
+      B: { e0: state.e0B, beta: state.betaB },
+    },
+    taskWeights: { A: 1, B: 1 },
+  };
 }
 
-function svgElement(name, attributes = {}) {
-  const element = document.createElementNS(SVG_NAMESPACE, name);
-  for (const [key, value] of Object.entries(attributes)) {
-    element.setAttribute(key, String(value));
-  }
-  return element;
+function solverStatusLabel(status) {
+  const labels = {
+    converged_kkt: "収束した局所KKT候補",
+    feasible_iteration_limit: "実行可能な決定論的局所候補",
+    no_feasible_candidate_found: "最小制約違反の局所候補",
+    numerical_failure: "数値計算エラー",
+  };
+  return labels[status] ?? status;
 }
 
-function svgText(parent, content, attributes = {}) {
+function textNode(parent, content, attributes = {}) {
   const node = svgElement("text", attributes);
   node.textContent = content;
   parent.append(node);
   return node;
 }
 
-function format(value, decimals = 2) {
-  if (!Number.isFinite(value)) return "—";
-  const fixed = value.toFixed(decimals);
-  return fixed.includes(".") ? fixed.replace(/0+$/, "").replace(/\.$/, "") : fixed;
-}
-
-function cloneDefaults() {
-  return {
-    worker: { ...DEFAULT_TWO_TASK_PARAMETERS.worker },
-    managers: {
-      A: { ...DEFAULT_TWO_TASK_PARAMETERS.managers.A },
-      B: { ...DEFAULT_TWO_TASK_PARAMETERS.managers.B },
-    },
-  };
-}
-
-function setOutput(output, value) {
-  output.value = value;
-  output.textContent = value;
-}
-
-function addSvgAccessibility(svg, titleId, descriptionId, title, description) {
+function drawTimeline(instance, panel, best, width) {
+  const height = 150;
+  const margin = { left: 35, right: 16, top: 43, bottom: 35 };
+  const innerWidth = width - margin.left - margin.right;
+  const x = time => margin.left + time / DEADLINE * innerWidth;
+  const trackHeight = 36;
+  const svg = svgElement("svg", { viewBox: `0 0 ${width} ${height}` });
   svg.setAttribute("role", "img");
-  svg.setAttribute("aria-labelledby", `${titleId} ${descriptionId}`);
-  const titleNode = svgElement("title", { id: titleId });
-  titleNode.textContent = title;
-  const descriptionNode = svgElement("desc", { id: descriptionId });
-  descriptionNode.textContent = description;
-  svg.append(titleNode, descriptionNode);
-}
+  svg.setAttribute("aria-labelledby", `${instance.id}-solver-title ${instance.id}-solver-desc`);
+  const title = svgElement("title", { id: `${instance.id}-solver-title` });
+  title.textContent = "局所KKT候補の作業スケジュール";
+  const description = svgElement("desc", { id: `${instance.id}-solver-desc` });
+  description.textContent = `${best.orderLabel}、総作業量${formatNumber(best.totalWork)}、アイドル時間${formatNumber(best.idleTime)}。`;
+  svg.append(title, description);
 
-function horizontalTicks(width) {
-  return width < 360 ? [0, 10, 20, DEADLINE] : [0, 5, 10, 15, 20, DEADLINE];
-}
-
-function linePath(points, xScale, yScale) {
-  return points.map(({ x, y }, index) => (
-    `${index === 0 ? "M" : "L"}${xScale(x).toFixed(2)},${yScale(y).toFixed(2)}`
-  )).join(" ");
-}
-
-function createLegend(entries) {
-  const legend = htmlElement("ul", "tto-legends");
-  legend.setAttribute("aria-label", "図の凡例");
-  for (const { className, label } of entries) {
-    const item = htmlElement("li");
-    const swatch = htmlElement("span", `tto-swatch ${className}`);
-    swatch.setAttribute("aria-hidden", "true");
-    item.append(swatch, document.createTextNode(label));
-    legend.append(item);
-  }
-  return legend;
-}
-
-function createMetric(label, extraClass = "") {
-  const card = htmlElement("div", `tto-metric ${extraClass}`.trim());
-  const labelNode = htmlElement("p", "tto-metric-label", label);
-  const output = htmlElement("output", "tto-metric-value", "—");
-  output.setAttribute("aria-label", label);
-  card.append(labelNode, output);
-  return { card, output };
-}
-
-function createControl(panelId, descriptor, value, signal, onInput) {
-  const wrapper = htmlElement("div", "tto-control");
-  const label = htmlElement("label");
-  const labelText = htmlElement("span", undefined, descriptor.label);
-  const output = htmlElement("output", undefined, format(value, descriptor.decimals));
-  const input = htmlElement("input");
-  const range = htmlElement("div", "tto-range",
-    `範囲 ${format(descriptor.min, descriptor.decimals)}–${format(descriptor.max, descriptor.decimals)}`);
-  input.id = `${panelId}-${descriptor.id}`;
-  input.type = "range";
-  input.min = String(descriptor.min);
-  input.max = String(descriptor.max);
-  input.step = String(descriptor.step);
-  input.value = String(value);
-  label.htmlFor = input.id;
-  output.setAttribute("for", input.id);
-  label.append(labelText, output);
-  input.addEventListener("input", () => {
-    setOutput(output, format(input.valueAsNumber, descriptor.decimals));
-    onInput(input.valueAsNumber);
-  }, { signal });
-  wrapper.append(label, input, range);
-  return { wrapper, input, output, descriptor };
-}
-
-function drawTimeline(host, instanceId, result, width) {
-  const height = width < 390 ? 180 : 166;
-  const margin = { top: 42, right: 14, bottom: 39, left: 31 };
-  const innerWidth = width - margin.left - margin.right;
-  const bandTop = 52;
-  const bandHeight = 40;
-  const axisY = height - margin.bottom;
-  const xScale = value => margin.left + value / DEADLINE * innerWidth;
-  const svg = svgElement("svg", { viewBox: `0 0 ${width} ${height}` });
-  const feasible = Boolean(result?.feasible);
-  const description = feasible
-    ? `作業順序は${result.best.orderLabel}。全作業は時刻${format(result.best.totalWork)}で終了し、期限までの余白は${format(Math.max(0, result.best.idleTime))}です。`
-    : `時刻0から${DEADLINE}までの共通締切を示します。現在の条件は実行可能領域外です。`;
-  addSvgAccessibility(svg, `${instanceId}-timeline-title`, `${instanceId}-timeline-desc`,
-    "2タスクの作業タイムライン", description);
-
-  for (const tick of horizontalTicks(width)) {
+  for (let tick = 0; tick <= DEADLINE; tick += 5) {
     svg.append(svgElement("line", {
-      x1: xScale(tick), x2: xScale(tick), y1: bandTop, y2: axisY,
-      class: "tto-grid",
+      x1: x(tick), x2: x(tick), y1: margin.top - 10,
+      y2: margin.top + trackHeight + 11, class: "mw-grid",
     }));
-    svgText(svg, tick, { x: xScale(tick), y: axisY + 18, "text-anchor": "middle" });
-  }
-  svg.append(svgElement("line", {
-    x1: xScale(0), x2: xScale(DEADLINE), y1: axisY, y2: axisY, class: "tto-axis",
-  }));
-  svgText(svg, "カレンダー時刻 t", {
-    x: width / 2, y: height - 7, "text-anchor": "middle", class: "tto-axis-title",
-  });
-
-  if (!feasible) {
-    svg.append(svgElement("rect", {
-      x: xScale(0), y: bandTop, width: innerWidth, height: bandHeight,
-      rx: 3, class: "tto-idle",
-    }));
-    svgText(svg, "実行可能領域外（infeasible）", {
-      x: width / 2, y: bandTop + bandHeight / 2 + 4,
-      "text-anchor": "middle", class: "tto-empty-label",
+    textNode(svg, String(tick), {
+      x: x(tick), y: margin.top + trackHeight + 27, "text-anchor": "middle",
     });
-    host.replaceChildren(svg);
-    return;
   }
-
-  for (const phase of result.best.phases) {
-    const start = xScale(phase.start);
-    const end = xScale(phase.end);
-    const rect = svgElement("rect", {
-      x: start,
-      y: bandTop,
-      width: Math.max(0, end - start),
-      height: bandHeight,
-      class: `tto-phase-${phase.task.toLowerCase()}`,
-    });
-    const title = svgElement("title");
-    title.textContent = `${phase.phase}: ${format(phase.start)}–${format(phase.end)}（${format(phase.duration)}時間）`;
-    rect.append(title);
-    svg.append(rect);
-    if (phase.stage === 2) {
-      const spacing = 7;
-      const clipId = `${instanceId}-${phase.phase}-clip`;
-      const defs = svgElement("defs");
-      const clip = svgElement("clipPath", { id: clipId });
-      clip.append(svgElement("rect", {
-        x: start, y: bandTop, width: Math.max(0, end - start), height: bandHeight,
-      }));
-      defs.append(clip);
-      svg.append(defs);
-      for (let x = start - bandHeight; x < end + bandHeight; x += spacing) {
-        svg.append(svgElement("line", {
-          x1: x, y1: bandTop + bandHeight, x2: x + bandHeight, y2: bandTop,
-          stroke: "white", "stroke-opacity": .32, "stroke-width": 1.2,
-          "clip-path": `url(#${clipId})`,
-        }));
-      }
-    }
-    if (end - start >= 25) {
-      svgText(svg, phase.phase, {
-        x: (start + end) / 2,
-        y: bandTop + bandHeight / 2 + 4,
-        "text-anchor": "middle",
-        class: "tto-phase-label",
-      });
-    }
-  }
-
-  if (result.best.idleTime > 0) {
-    const start = xScale(result.best.totalWork);
+  for (const phase of best.phases) {
     svg.append(svgElement("rect", {
-      x: start, y: bandTop, width: Math.max(0, xScale(DEADLINE) - start),
-      height: bandHeight, class: "tto-idle",
+      x: x(phase.start), y: margin.top,
+      width: Math.max(1, x(phase.end) - x(phase.start)), height: trackHeight,
+      rx: 2, class: phase.task === "A" ? "solver-phase-a" : "solver-phase-b",
     }));
-    if (xScale(DEADLINE) - start >= 29) {
-      svgText(svg, "idle", {
-        x: (start + xScale(DEADLINE)) / 2,
-        y: bandTop + bandHeight / 2 + 4,
-        "text-anchor": "middle",
-      });
-    }
+    textNode(svg, phase.phase, {
+      x: (x(phase.start) + x(phase.end)) / 2,
+      y: margin.top + 23,
+      "text-anchor": "middle",
+      class: "solver-phase-label",
+    });
   }
-
-  for (const task of TASKS) {
-    const taskResult = result.best.tasks[task];
-    const isTaskA = task === "A";
-    const markerClass = `tto-event-${task.toLowerCase()}`;
-    const events = [
-      { time: taskResult.tau, label: `R${task}`, review: true },
-      { time: taskResult.completionTime, label: `F${task}`, review: false },
-    ];
-    for (const event of events) {
-      const x = xScale(event.time);
-      const markerY = isTaskA ? bandTop - 12 : bandTop + bandHeight + 12;
+  if (best.idleTime > 1e-8) {
+    svg.append(svgElement("rect", {
+      x: x(best.totalWork), y: margin.top,
+      width: Math.max(0, x(DEADLINE) - x(best.totalWork)), height: trackHeight,
+      class: "solver-idle",
+    }));
+  }
+  for (const task of ["A", "B"]) {
+    const item = best.tasks[task];
+    for (const [time, label] of [
+      [item.tau, `τ${task}`],
+      [item.completionTime, `c${task}`],
+    ]) {
       svg.append(svgElement("line", {
-        x1: x, x2: x,
-        y1: isTaskA ? markerY + 5 : bandTop + bandHeight,
-        y2: isTaskA ? bandTop : markerY - 5,
-        class: `tto-event-line ${markerClass}`,
+        x1: x(time), x2: x(time), y1: margin.top - 11,
+        y2: margin.top + trackHeight + 10, class: "solver-event",
       }));
-      if (event.review) {
-        svg.append(svgElement("polygon", {
-          points: `${x},${markerY - 5} ${x + 5},${markerY} ${x},${markerY + 5} ${x - 5},${markerY}`,
-          class: markerClass,
-        }));
-      } else {
-        svg.append(svgElement("circle", { cx: x, cy: markerY, r: 4.7, class: markerClass }));
-      }
-      svgText(svg, event.label, {
-        x,
-        y: isTaskA ? markerY - 8 : markerY + 15,
-        "text-anchor": "middle",
-        class: markerClass,
+      textNode(svg, label, {
+        x: x(time), y: margin.top - 16, "text-anchor": "middle",
+        class: "solver-event-label",
       });
     }
   }
-  host.replaceChildren(svg);
-}
-
-function chartMaximum(result, parameters) {
-  const values = [Q_MINIMUM, 120];
-  for (const task of TASKS) {
-    values.push(expectationAtCalendarTime(task, DEADLINE, parameters));
-    if (result?.feasible) values.push(result.best.tasks[task].finalQuality);
-  }
-  return Math.max(120, Math.ceil(Math.max(...values) / 20) * 20);
-}
-
-function drawTaskChart(host, instanceId, task, result, parameters, maximum, width) {
-  const height = width < 380 ? 286 : 270;
-  const margin = { top: 29, right: 15, bottom: 47, left: 43 };
-  const innerWidth = width - margin.left - margin.right;
-  const innerHeight = height - margin.top - margin.bottom;
-  const xScale = value => margin.left + value / DEADLINE * innerWidth;
-  const yScale = value => margin.top + (1 - value / maximum) * innerHeight;
-  const svg = svgElement("svg", { viewBox: `0 0 ${width} ${height}` });
-  const feasible = Boolean(result?.feasible);
-  const taskResult = feasible ? result.best.tasks[task] : null;
-  const description = feasible
-    ? `Task ${task}の品質は担当phaseで上昇し、もう一方のタスクのphaseで同じ水準を保ちます。中間レビューは時刻${format(taskResult.tau)}、最終レビューは時刻${format(taskResult.completionTime)}、最終品質は${format(taskResult.finalQuality)}です。期待値はカレンダー時刻に沿って上昇します。`
-    : `Task ${task}の期待値と最低品質100を時刻0から${DEADLINE}まで表示します。現在の条件は実行可能領域外です。`;
-  addSvgAccessibility(svg, `${instanceId}-${task}-title`, `${instanceId}-${task}-desc`,
-    `Task ${task}の品質と期待値`, description);
-
-  if (feasible) {
-    for (const phase of result.best.phases.filter(item => item.task === task)) {
-      svg.append(svgElement("rect", {
-        x: xScale(phase.start),
-        y: margin.top,
-        width: Math.max(0, xScale(phase.end) - xScale(phase.start)),
-        height: innerHeight,
-        class: `tto-active-${task.toLowerCase()}`,
-      }));
-      if (xScale(phase.end) - xScale(phase.start) > 31) {
-        svgText(svg, phase.phase, {
-          x: (xScale(phase.start) + xScale(phase.end)) / 2,
-          y: margin.top + 13,
-          "text-anchor": "middle",
-        });
-      }
-    }
-  }
-
-  for (const tick of horizontalTicks(width)) {
-    svg.append(svgElement("line", {
-      x1: xScale(tick), x2: xScale(tick), y1: margin.top,
-      y2: yScale(0), class: "tto-grid",
-    }));
-    svgText(svg, tick, { x: xScale(tick), y: yScale(0) + 18, "text-anchor": "middle" });
-  }
-  for (let index = 0; index <= 4; index += 1) {
-    const tick = maximum * index / 4;
-    svg.append(svgElement("line", {
-      x1: xScale(0), x2: xScale(DEADLINE), y1: yScale(tick),
-      y2: yScale(tick), class: "tto-grid",
-    }));
-    svgText(svg, format(tick, 0), {
-      x: margin.left - 6, y: yScale(tick) + 4, "text-anchor": "end",
-    });
-  }
-  svg.append(svgElement("path", {
-    d: `M${xScale(0)},${yScale(maximum)} V${yScale(0)} H${xScale(DEADLINE)}`,
-    class: "tto-axis",
-  }));
-  svg.append(svgElement("line", {
-    x1: xScale(0), x2: xScale(DEADLINE), y1: yScale(Q_MINIMUM),
-    y2: yScale(Q_MINIMUM), class: "tto-threshold",
-  }));
-  svgText(svg, "品質 / 期待値", { x: margin.left, y: 15, class: "tto-axis-title" });
-  svgText(svg, "カレンダー時刻 t", {
-    x: width / 2, y: height - 7, "text-anchor": "middle", class: "tto-axis-title",
+  textNode(svg, "カレンダー時刻 t", {
+    x: width / 2, y: height - 5, "text-anchor": "middle", class: "mw-axis-title",
   });
-
-  const expectationPoints = [0, DEADLINE].map(time => ({
-    x: time,
-    y: expectationAtCalendarTime(task, time, parameters),
-  }));
-  svg.append(svgElement("path", {
-    d: linePath(expectationPoints, xScale, yScale), class: "tto-expectation",
-  }));
-
-  if (feasible) {
-    const sampledTimes = new Set([0, DEADLINE]);
-    for (let index = 0; index <= 250; index += 1) {
-      sampledTimes.add(DEADLINE * index / 250);
-    }
-    for (const phase of result.best.phases) {
-      sampledTimes.add(phase.start);
-      sampledTimes.add(phase.end);
-    }
-    const qualityPoints = [...sampledTimes].sort((left, right) => left - right).map(time => ({
-      x: time,
-      y: qualityAtCalendarTime(result.best, task, time, parameters),
-    }));
-    svg.append(svgElement("path", {
-      d: linePath(qualityPoints, xScale, yScale),
-      class: `tto-quality tto-quality-${task.toLowerCase()}`,
-    }));
-
-    const pointClass = `tto-point tto-point-${task.toLowerCase()}`;
-    const reviewX = xScale(taskResult.tau);
-    const reviewY = yScale(taskResult.reviewQuality);
-    svg.append(svgElement("polygon", {
-      points: `${reviewX},${reviewY - 5} ${reviewX + 5},${reviewY} ${reviewX},${reviewY + 5} ${reviewX - 5},${reviewY}`,
-      class: `${pointClass} tto-review-point`,
-    }));
-    svg.append(svgElement("circle", {
-      cx: xScale(taskResult.completionTime),
-      cy: yScale(taskResult.finalQuality),
-      r: 4.8,
-      class: `${pointClass} tto-final-point`,
-    }));
-  }
-  host.replaceChildren(svg);
+  panel.chart.replaceChildren(svg);
 }
 
-function replaceResultRows(tbody, result, state = "result") {
-  tbody.replaceChildren();
-  if (state === "working" || state === "error") {
-    const row = htmlElement("tr");
-    const message = state === "working" ? "近似解を計算しています" : "計算エラー";
-    const cell = htmlElement("td", "tto-table-empty", message);
-    cell.colSpan = 8;
-    row.append(cell);
-    tbody.append(row);
-    return;
+function makeCell(row, value, label) {
+  const cell = htmlElement("td", undefined, value);
+  if (label) cell.dataset.label = label;
+  row.append(cell);
+}
+
+function makeHeading(content, scope, className) {
+  const heading = htmlElement("th", className, content);
+  heading.scope = scope;
+  return heading;
+}
+
+function renderTaskTable(host, best) {
+  const wrapper = htmlElement("div", "solver-table-wrap");
+  const table = htmlElement("table", "solver-table");
+  table.append(htmlElement("caption", undefined, "タスク別の解と評価"));
+  const head = htmlElement("thead");
+  const headingRow = htmlElement("tr");
+  for (const heading of ["タスク", "x", "y", "τ", "c", "最終品質", "S₁", "S₂", "Ji"]) {
+    headingRow.append(makeHeading(heading, "col"));
   }
-  if (!result?.feasible) {
+  head.append(headingRow);
+  const body = htmlElement("tbody");
+  for (const task of ["A", "B"]) {
+    const item = best.tasks[task];
     const row = htmlElement("tr");
-    const cell = htmlElement("td", "tto-table-empty", "実行可能領域外（infeasible）");
-    cell.colSpan = 8;
-    row.append(cell);
-    tbody.append(row);
-    return;
+    row.append(makeHeading(task, "row"));
+    makeCell(row, formatNumber(item.x), "レビュー前作業 x");
+    makeCell(row, formatNumber(item.y), "レビュー後作業 y");
+    makeCell(row, formatNumber(item.tau), "中間レビュー τ");
+    makeCell(row, formatNumber(item.completionTime), "完了 c");
+    makeCell(row, formatNumber(item.finalQuality), "最終品質");
+    makeCell(row, formatNumber(item.scores.review), "S₁");
+    makeCell(row, formatNumber(item.scores.final), "S₂");
+    makeCell(row, formatNumber(item.J), "Ji");
+    body.append(row);
   }
-  const columns = [
-    ["レビュー前作業 x", "x"],
-    ["レビュー後作業 y", "y"],
-    ["中間レビュー τ", "tau"],
-    ["最終レビュー c", "completionTime"],
-    ["中間品質", "reviewQuality"],
-    ["最終品質 Q", "finalQuality"],
-    ["評価 V", "evaluation"],
+  table.append(head, body);
+  wrapper.append(table);
+  host.replaceChildren(wrapper);
+}
+
+function renderOrderTable(host, orderResults) {
+  const wrapper = htmlElement("div", "solver-table-wrap");
+  const table = htmlElement("table", "solver-table");
+  table.append(htmlElement("caption", undefined, "6順序の決定論的局所候補"));
+  const head = htmlElement("thead");
+  const headingRow = htmlElement("tr");
+  for (const heading of ["順序 π", "solver status", "Jall", "制約残差", "KKT残差"]) {
+    headingRow.append(makeHeading(heading, "col"));
+  }
+  head.append(headingRow);
+  const body = htmlElement("tbody");
+  for (const result of orderResults) {
+    const row = htmlElement("tr");
+    row.append(makeHeading(result.orderLabel, "row", "solver-code"));
+    makeCell(row, solverStatusLabel(result.solverStatus), "solver status");
+    makeCell(row, formatNumber(result.overallJ), "Jall");
+    makeCell(row, formatNumber(result.violation.normalizedMaximum, 6), "制約残差");
+    makeCell(row, formatNumber(result.solverDiagnostics?.kktResidual, 6), "KKT残差");
+    body.append(row);
+  }
+  table.append(head, body);
+  wrapper.append(table);
+  host.replaceChildren(wrapper);
+}
+
+function diagnosticParagraphs(best, diagnostics) {
+  const solver = best.solverDiagnostics ?? {};
+  const multipliers = solver.multipliers ?? {};
+  const raw = solver.raw ?? {};
+  const lowerBounds = Array.isArray(multipliers.lowerBounds)
+    ? multipliers.lowerBounds.map(value => formatNumber(value, 5)).join(", ")
+    : "—";
+  return [
+    htmlElement("p", undefined,
+      "方式：6順序を完全列挙し、各順序を structured multi-start projected augmented-Lagrangian + BFGS で探索。連続部分は局所解、global certificate は非付与です。"),
+    htmlElement("p", undefined,
+      `KKT診断：primal ${formatNumber(solver.primalResidual, 7)}、stationarity ${formatNumber(solver.stationarityResidual, 7)}、dual ${formatNumber(solver.dualResidual, 7)}、complementarity ${formatNumber(solver.complementarityResidual, 7)}。`),
+    htmlElement("p", undefined,
+      `元スケール診断：最大制約違反 ${formatNumber(raw.primalResidual, 7)}、stationarity ${formatNumber(raw.stationarityResidual, 7)}、complementarity ${formatNumber(raw.complementarityResidual, 7)}。有効制約：${solver.activeConstraints?.join(", ") || "空集合"}。`),
+    htmlElement("p", undefined,
+      `Shadow price：品質A ${formatNumber(multipliers.qualityA, 5)}、品質B ${formatNumber(multipliers.qualityB, 5)}、締切 μ ${formatNumber(multipliers.deadline, 5)}、下限制約 (${lowerBounds})。`),
+    htmlElement("p", undefined,
+      `評価回数 ${diagnostics.totalEvaluations}、実行可能順序 ${diagnostics.feasibleOrders}/6、KKT収束順序 ${diagnostics.convergedOrders}/6。`),
   ];
-  for (const task of TASKS) {
-    const row = htmlElement("tr");
-    const heading = htmlElement("th", undefined, `Task ${task}`);
-    heading.scope = "row";
-    row.append(heading);
-    for (const [label, key] of columns) {
-      const cell = htmlElement("td", undefined, format(result.best.tasks[task][key]));
-      cell.dataset.label = label;
-      row.append(cell);
-    }
-    tbody.append(row);
-  }
 }
 
-function diagnosticText(result) {
-  if (result.feasible) {
-    return `6つの作業順序のうち${result.diagnostics.feasibleOrders}通りが品質・時間制約を達成しました。近似探索では${result.diagnostics.totalEvaluations.toLocaleString("ja-JP")}件の候補を評価しました。`;
-  }
-  const gap = result.best.violation;
-  return `探索候補の最小制約差：Task Aの品質基準まで${format(gap.qualityA)}、Task Bの品質基準まで${format(gap.qualityB)}、締切超過${format(gap.time)}、正作業量条件${format(gap.positivity, 0)} phase。`;
-}
-
-/** Render the deterministic, browser-only optimizer for the two-task chapter. */
-export function renderTwoTaskOptimizer(initialParameters = DEFAULT_TWO_TASK_PARAMETERS) {
-  const instanceId = `two-task-optimizer-${++nextWidgetId}`;
-  const root = htmlElement("section", "two-task-widget");
-  root.setAttribute("role", "group");
-  root.setAttribute("aria-labelledby", `${instanceId}-heading`);
-  root.setAttribute("aria-busy", "true");
-  const style = htmlElement("style");
-  style.textContent = STYLES;
-
-  const header = htmlElement("header", "tto-header");
-  const title = htmlElement("div", "tto-title", "2タスクのレビュータイミングと作業順序");
-  title.id = `${instanceId}-heading`;
-  title.setAttribute("role", "heading");
-  title.setAttribute("aria-level", "3");
-  const intro = htmlElement("p", "tto-intro",
-    "スライダーに応じて6つの作業順序を比較し、平均評価が最大となる近似解を更新します。");
-  const invarianceNote = htmlElement("p", "tto-note",
-    "初期期待値 a_A・a_B は評価水準を平行移動させ、選ばれる作業順序と各フェーズ時間を保ちます。");
-  const facts = htmlElement("p", "tto-facts");
-  facts.append(
-    htmlElement("span", "tto-fact", `共通締切 T = ${DEADLINE}`),
-    htmlElement("span", "tto-fact", `最低品質 Qmin = ${Q_MINIMUM}`),
-    htmlElement("span", "tto-fact", "中間レビュー 各1回"),
+export function renderTwoTaskOptimizer(initial = {}) {
+  const defaults = { ...DEFAULTS, ...initial };
+  const state = { ...defaults };
+  const instance = createWidgetRoot(
+    "2タスク制約付きNLP",
+    `T = ${DEADLINE}、各タスクの完成品質基準 Qmin = ${Q_MINIMUM} のもとで、6順序と連続作業量を解きます。`,
   );
-  const status = htmlElement("p", "tto-status", "近似解を計算しています");
-  status.setAttribute("role", "status");
-  status.setAttribute("aria-live", "polite");
-  status.setAttribute("aria-atomic", "true");
-  status.dataset.state = "working";
-  header.append(title, intro, invarianceNote, facts, status);
-
+  const extraStyle = htmlElement("style");
+  extraStyle.textContent = EXTRA_STYLES;
+  instance.root.prepend(extraStyle);
   const controller = new AbortController();
-  const cleanups = [];
+  const cleanups = [() => controller.abort()];
   let disposed = false;
-  let debounceTimer;
+  let timer;
   let revision = 0;
-  let parameters = cloneDefaults();
-  parameters.worker = { ...parameters.worker, ...(initialParameters.worker ?? {}) };
-  parameters.managers.A = {
-    ...parameters.managers.A,
-    ...(initialParameters.managers?.A ?? {}),
-  };
-  parameters.managers.B = {
-    ...parameters.managers.B,
-    ...(initialParameters.managers?.B ?? {}),
-  };
+  let width = 680;
+  let lastResult = null;
 
-  const form = htmlElement("form", "tto-control-form");
-  form.addEventListener("submit", event => event.preventDefault(), { signal: controller.signal });
-  const controlsGrid = htmlElement("div", "tto-controls");
-  const controlRecords = [];
-  const groups = [
-    {
-      legend: "作業者",
-      note: "両タスクが共有する品質曲線のパラメータです。",
-      descriptors: [
-        { id: "qbar", scope: "worker", key: "qbar", label: "基準品質の上限 q̄", min: 55, max: 100, step: 1, decimals: 0 },
-        { id: "k", scope: "worker", key: "k", label: "基礎的な改善速度 k", min: .1, max: .8, step: .05, decimals: 2 },
-        { id: "h", scope: "worker", key: "h", label: "レビューの成熟尺度 h", min: .5, max: 8, step: .25, decimals: 2 },
-      ],
-    },
-    {
-      legend: "Manager A",
-      note: "期待値は e_A(t) = a_A + b_A t です。",
-      descriptors: [
-        { id: "a-a", scope: "manager", task: "A", key: "a", label: "初期期待値 a_A", min: 0, max: 80, step: 1, decimals: 0 },
-        { id: "b-a", scope: "manager", task: "A", key: "b", label: "期待上昇率 b_A", min: 0, max: 15, step: .5, decimals: 1 },
-      ],
-    },
-    {
-      legend: "Manager B",
-      note: "期待値は e_B(t) = a_B + b_B t です。",
-      descriptors: [
-        { id: "a-b", scope: "manager", task: "B", key: "a", label: "初期期待値 a_B", min: 0, max: 80, step: 1, decimals: 0 },
-        { id: "b-b", scope: "manager", task: "B", key: "b", label: "期待上昇率 b_B", min: 0, max: 15, step: .5, decimals: 1 },
-      ],
-    },
-  ];
-
-  const valueFor = descriptor => descriptor.scope === "worker"
-    ? parameters.worker[descriptor.key]
-    : parameters.managers[descriptor.task][descriptor.key];
-  const updateParameter = (descriptor, value) => {
-    if (descriptor.scope === "worker") {
-      parameters = { ...parameters, worker: { ...parameters.worker, [descriptor.key]: value } };
-    } else {
-      parameters = {
-        ...parameters,
-        managers: {
-          ...parameters.managers,
-          [descriptor.task]: {
-            ...parameters.managers[descriptor.task],
-            [descriptor.key]: value,
-          },
-        },
-      };
-    }
-  };
-
-  let scheduleOptimization = () => {};
-  for (const group of groups) {
-    const fieldset = htmlElement("fieldset", "tto-control-group");
-    const legend = htmlElement("legend", undefined, group.legend);
-    const note = htmlElement("p", "tto-group-note", group.note);
-    fieldset.append(legend, note);
-    for (const descriptor of group.descriptors) {
-      const control = createControl(instanceId, descriptor, valueFor(descriptor),
-        controller.signal, value => {
-          updateParameter(descriptor, value);
-          scheduleOptimization();
-        });
-      controlRecords.push(control);
-      fieldset.append(control.wrapper);
-    }
-    controlsGrid.append(fieldset);
-  }
-  const actions = htmlElement("div", "tto-actions");
-  const resetButton = htmlElement("button", "tto-reset", "初期値へ戻す");
-  resetButton.type = "button";
-  actions.append(resetButton);
-  form.append(controlsGrid, actions);
-
-  const summarySection = htmlElement("section", "tto-section");
-  const summaryHeading = htmlElement("h4", "tto-section-title", "最適化サマリ");
-  const metrics = htmlElement("div", "tto-metrics");
-  const meanMetric = createMetric("平均評価");
-  const finishMetric = createMetric("作業終了時刻");
-  const idleMetric = createMetric("期限までの余白");
-  const orderMetric = createMetric("作業順序", "tto-metric--order");
-  metrics.append(meanMetric.card, finishMetric.card, idleMetric.card, orderMetric.card);
-  const diagnostics = htmlElement("div", "tto-diagnostics", "計算を開始します。");
-  summarySection.append(summaryHeading, metrics, diagnostics);
-
-  const timelineSection = htmlElement("section", "tto-section");
-  const timelineFigure = htmlElement("figure", "tto-figure");
-  const timelineCaption = htmlElement("figcaption", "tto-caption", "最適作業スケジュール");
-  const timelineHost = htmlElement("div", "tto-chart-host");
-  timelineFigure.append(timelineCaption, timelineHost,
-    createLegend([
-      { className: "tto-swatch-a", label: "Task A" },
-      { className: "tto-swatch-b", label: "Task B" },
-      { className: "tto-swatch-stage2", label: "斜線：レビュー後phase" },
-    ]));
-  timelineFigure.append(htmlElement("p", "tto-note",
-    "Rは中間レビュー、Fは最終レビュー、斜線はレビュー後phaseを表します。"));
-  timelineSection.append(timelineFigure);
-
-  const chartsSection = htmlElement("section", "tto-section");
-  const chartsHeading = htmlElement("h4", "tto-section-title", "カレンダー時刻上の品質と期待値");
-  const chartGrid = htmlElement("div", "tto-chart-grid");
-  const chartHosts = {};
-  for (const task of TASKS) {
-    const figure = htmlElement("figure", "tto-figure");
-    const caption = htmlElement("figcaption", "tto-caption", `Task ${task}`);
-    const host = htmlElement("div", "tto-chart-host");
-    chartHosts[task] = host;
-    figure.append(caption, host,
-      createLegend([
-        { className: `tto-swatch-${task.toLowerCase()}`, label: `Task ${task}の品質` },
-        { className: "tto-swatch-expectation", label: "マネージャー期待値" },
-        { className: "tto-swatch-threshold", label: `最低品質 ${Q_MINIMUM}` },
-        { className: "tto-swatch-active", label: "品質が上昇するphase" },
-      ]));
-    chartGrid.append(figure);
-  }
-  const chartNote = htmlElement("p", "tto-note",
-    "色付きの区間で各タスクの品質が上昇し、もう一方のタスクの区間では同じ水準を保ちます。期待値はカレンダー時刻に沿って上昇します。");
-  chartsSection.append(chartsHeading, chartGrid, chartNote);
-
-  const tableSection = htmlElement("section", "tto-section");
-  const tableHeading = htmlElement("h4", "tto-section-title", "タスク別の数値");
-  const tableWrap = htmlElement("div", "tto-table-wrap");
-  const table = htmlElement("table", "tto-table");
-  const caption = htmlElement("caption", undefined, "レビュー時刻・品質・評価");
-  const thead = htmlElement("thead");
-  const headerRow = htmlElement("tr");
-  for (const headingText of [
-    "Task", "レビュー前作業 x", "レビュー後作業 y", "中間レビュー τ",
-    "最終レビュー c", "中間品質", "最終品質 Q", "評価 V",
-  ]) {
-    const heading = htmlElement("th", undefined, headingText);
-    heading.scope = "col";
-    headerRow.append(heading);
-  }
-  thead.append(headerRow);
-  const tbody = htmlElement("tbody");
-  table.append(caption, thead, tbody);
-  tableWrap.append(table);
-  tableSection.append(tableHeading, tableWrap);
-
-  const footerNote = htmlElement("p", "tto-note",
-    "決定的な乱数系列を使う近似探索により、同じ入力には同じ結果が対応します。対象は2タスクで、各タスクの中間レビューは1回です。");
-  root.append(style, header, form, summarySection, timelineSection, chartsSection,
-    tableSection, footerNote);
-
-  let latestResult = null;
-  const redrawers = [];
-  const installResponsiveDrawing = (host, draw) => {
-    let previousWidth = 0;
-    const redraw = () => {
-      if (disposed) return;
-      const measured = host.getBoundingClientRect().width;
-      const width = Math.max(260, Math.round(measured || 620));
-      previousWidth = width;
-      draw(width);
-    };
-    if (typeof ResizeObserver !== "undefined") {
-      const observer = new ResizeObserver(entries => {
-        const width = Math.max(260, Math.round(entries[0].contentRect.width || 620));
-        if (width !== previousWidth) redraw();
-      });
-      observer.observe(host);
-      cleanups.push(() => observer.disconnect());
-    } else {
-      window.addEventListener("resize", redraw, { signal: controller.signal });
-    }
-    redrawers.push(redraw);
-    redraw();
-  };
-
-  installResponsiveDrawing(timelineHost,
-    width => drawTimeline(timelineHost, instanceId, latestResult, width));
-  for (const task of TASKS) {
-    installResponsiveDrawing(chartHosts[task], width => drawTaskChart(
-      chartHosts[task], instanceId, task, latestResult, parameters,
-      chartMaximum(latestResult, parameters), width,
-    ));
-  }
+  let schedule = () => {};
+  createControls(instance, state, defaults, CONTROLS, () => schedule(), controller.signal);
+  const { container: metricContainer, metrics } = createMetrics({
+    order: "選択されたフェーズ順序",
+    objective: "総合評価 Jall",
+    totalWork: "総作業量",
+    idleTime: "アイドル時間",
+    constraint: "最大制約残差",
+    kkt: "KKT残差",
+  });
+  const plots = htmlElement("div", "mw-plots");
+  const timeline = createPanel("選択候補のスケジュール", "中間レビュー τi と完了 ci をカレンダー上に示します。");
+  plots.append(timeline.panel);
+  const taskSection = htmlElement("section", "solver-section");
+  taskSection.append(htmlElement("h4", "solver-section-title", "タスク別評価"));
+  const taskTableHost = htmlElement("div");
+  taskSection.append(taskTableHost);
+  const orderSection = htmlElement("section", "solver-section");
+  orderSection.append(htmlElement("h4", "solver-section-title", "順序別候補"));
+  const orderTableHost = htmlElement("div");
+  orderSection.append(orderTableHost);
+  const details = htmlElement("div", "mw-details");
+  instance.root.append(metricContainer, plots, taskSection, orderSection, details);
 
   const renderResult = result => {
-    latestResult = result;
-    if (result.feasible) {
-      status.textContent = `実行可能解・${result.diagnostics.feasibleOrders}/6順序`;
-      status.dataset.state = "ready";
-      setOutput(meanMetric.output, format(result.best.meanEvaluation));
-      setOutput(finishMetric.output, format(result.best.totalWork));
-      setOutput(idleMetric.output, format(Math.max(0, result.best.idleTime)));
-      setOutput(orderMetric.output, result.best.orderLabel);
-      diagnostics.dataset.state = "ready";
-    } else {
-      status.textContent = "実行可能領域外（infeasible）";
-      status.dataset.state = "outside";
-      for (const output of [meanMetric.output, finishMetric.output, idleMetric.output]) {
-        setOutput(output, "—");
-      }
-      setOutput(orderMetric.output, "infeasible");
-      diagnostics.dataset.state = "outside";
-    }
-    diagnostics.textContent = diagnosticText(result);
-    replaceResultRows(tbody, result);
-    for (const redraw of redrawers) redraw();
-    root.setAttribute("aria-busy", "false");
+    lastResult = result;
+    const best = result.best;
+    setOutput(metrics.order.output, best.orderLabel);
+    setOutput(metrics.objective.output, formatNumber(best.overallJ));
+    setOutput(metrics.totalWork.output, formatNumber(best.totalWork));
+    setOutput(metrics.idleTime.output, formatNumber(best.idleTime));
+    setOutput(metrics.constraint.output,
+      formatNumber(best.violation.normalizedMaximum, 7));
+    setOutput(metrics.kkt.output,
+      formatNumber(best.solverDiagnostics?.kktResidual, 7));
+    instance.status.textContent = solverStatusLabel(best.solverStatus);
+    instance.status.dataset.state = best.feasible ? "resolved" : "boundary";
+    drawTimeline(instance, timeline, best, width);
+    renderTaskTable(taskTableHost, best);
+    renderOrderTable(orderTableHost, result.orderResults);
+    details.replaceChildren(...diagnosticParagraphs(best, result.diagnostics));
+    instance.root.setAttribute("aria-busy", "false");
   };
 
-  const runOptimization = requestedRevision => {
-    if (disposed || requestedRevision !== revision) return;
-    try {
-      const result = optimizeTwoTasks(parameters);
-      if (disposed || requestedRevision !== revision) return;
-      renderResult(result);
-    } catch (error) {
-      latestResult = null;
-      status.textContent = "計算エラー";
-      status.dataset.state = "error";
-      diagnostics.textContent = "計算エラーが発生しました。ページの再読み込みで再計算します。";
-      diagnostics.dataset.state = "error";
-      for (const output of [meanMetric.output, finishMetric.output, idleMetric.output, orderMetric.output]) {
-        setOutput(output, "—");
-      }
-      replaceResultRows(tbody, null, "error");
-      for (const redraw of redrawers) redraw();
-      root.setAttribute("aria-busy", "false");
-      // Keep the exception available to the browser console for implementation checks.
-      console.error(error);
-    }
-  };
-
-  scheduleOptimization = (delay = RECOMPUTE_DELAY) => {
+  schedule = (delay = RECOMPUTE_DELAY) => {
     revision += 1;
-    const requestedRevision = revision;
-    clearTimeout(debounceTimer);
-    root.setAttribute("aria-busy", "true");
-    status.textContent = "近似解を計算しています";
-    status.dataset.state = "working";
-    debounceTimer = setTimeout(() => runOptimization(requestedRevision), delay);
+    const requested = revision;
+    clearTimeout(timer);
+    instance.root.setAttribute("aria-busy", "true");
+    instance.status.textContent = "決定論的局所候補を計算中";
+    instance.status.dataset.state = "working";
+    timer = setTimeout(() => {
+      if (disposed || requested !== revision) return;
+      try {
+        renderResult(optimizeTwoTasks(parameters(state)));
+      } catch (error) {
+        instance.status.textContent = "数値計算エラー";
+        instance.status.dataset.state = "error";
+        details.replaceChildren(htmlElement("p", undefined,
+          error instanceof Error ? error.message : String(error)));
+        instance.root.setAttribute("aria-busy", "false");
+      }
+    }, delay);
   };
 
-  resetButton.addEventListener("click", () => {
-    parameters = cloneDefaults();
-    for (const record of controlRecords) {
-      const value = valueFor(record.descriptor);
-      record.input.value = String(value);
-      setOutput(record.output, format(value, record.descriptor.decimals));
-    }
-    scheduleOptimization();
-  }, { signal: controller.signal });
+  mountResponsive(plots, nextWidth => {
+    width = nextWidth;
+    if (lastResult) drawTimeline(instance, timeline, lastResult.best, width);
+  }, cleanups);
+  schedule(0);
 
-  replaceResultRows(tbody, null, "working");
-  scheduleOptimization(0);
-
-  root.dispose = () => {
+  instance.root.dispose = () => {
     if (disposed) return;
     disposed = true;
     revision += 1;
-    clearTimeout(debounceTimer);
-    controller.abort();
-    for (const cleanup of cleanups) cleanup();
+    clearTimeout(timer);
+    for (const cleanup of cleanups.splice(0)) cleanup();
   };
-  return root;
+  return instance.root;
 }

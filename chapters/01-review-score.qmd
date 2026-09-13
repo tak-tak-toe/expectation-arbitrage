@@ -1,0 +1,178 @@
+# レビュー時評価の最大化 {#sec-review-score}
+
+一つの成果物を一人の作業者が担当し、一人のマネージャーへ一度レビューを依頼する状況を考える。判断は「今レビューに出すか、もう少し作業してから出すか」である。本章では、レビュー時点の成果物品質と、その時点でマネージャーが期待する品質との差に焦点を合わせる。
+
+```{ojs}
+//| echo: false
+import { renderReviewScoreWidget } from "../widgets/review-model/review-score-widget.js"
+```
+
+## 二つの時計
+
+カレンダー時刻を $t$、累積実作業量を $w$ とする。両者は本来別の概念であり、別案件へ時間を使う局面では、$t$ が進む一方で対象成果物の $w$ は同じ値を保つ。本章ではレビューまで対象タスクへ連続して取り組むため、
+
+$$
+w=t
+$$ {#eq-review-score-work-clock}
+
+と置く。共通締切は
+
+$$
+T=25
+$$ {#eq-review-score-deadline}
+
+である。この区別は、複数タスクを扱う @sec-multiple-tasks で中心的な役割を持つ。
+
+## 基準品質生産関数
+
+外部フィードバックを受ける前の基準品質を、実作業量 $w$ の関数
+
+$$
+\Phi(w)
+$$
+
+で表す。一般仮定は
+
+$$
+\Phi'(w)>0,
+\qquad
+\Phi''(w)<0
+$$ {#eq-review-score-concavity}
+
+である。作業量の追加は品質を高め、追加1単位の作業が生む品質改善は次第に小さくなる。ここでの凹性は、限界品質改善 $\Phi'(w)$ の逓減を対象とする。物理的な作業速度は別の概念として扱う。
+
+初期には、問いの定義、仮説の設定、全体構成、主要分析といった高インパクトな作業が集まりやすい。後半には、表現の調整、例外の確認、整合性の点検といった局所的な改善の比率が上がりやすい。この対応はモデルの仮定として採用し、対象業務への適合性は案件ごとの確認を要する。
+
+::: {.callout-note title="実務で読む：追加1時間の価値"}
+初期の1時間は成果物の骨格を作り、後半の1時間は細部を整える。レビュー判断に効く量は、経過時間そのものより、その時点の限界品質改善 $\Phi'(w)$ である。
+:::
+
+## マネージャーの期待
+
+時刻 $t$ におけるマネージャーの期待品質を
+
+$$
+E(t)=E_0+\beta t,
+\qquad E_0\ge0,\quad \beta\ge0
+$$ {#eq-review-score-expectation}
+
+とする。$E_0$ は依頼時点の要求水準、$\beta$ はカレンダー時間1単位あたりの期待上昇率である。実務では、$E(t)$ を「作業者が認識しているレビュワー期待」と読むと、依頼時の伝え方や途中のコミュニケーションとの対応が明確になる。
+
+「期待している」という言葉は、現在の要求水準 $E_0$ と、その後の期待上昇率 $\beta$ の両方を含み得る。「2時間程度で一度叩き台を見たい」という依頼は、時間経過に対する期待を具体化し、$\beta$ の認識を揃える例になる。
+
+## レビュー時評価
+
+レビュー時刻を $\tau$ とし、そのレビューでの評価を
+
+$$
+S(\tau)=\Phi(\tau)-E(\tau)
+$$ {#eq-review-score}
+
+と定義する。最適化問題は
+
+$$
+\max_{0\le\tau\le T} S(\tau)
+$$ {#eq-review-score-problem}
+
+である。内点解では
+
+$$
+S'(\tau)=\Phi'(\tau)-\beta=0
+$$
+
+となるため、中心条件は
+
+$$
+\boxed{\Phi'(\tau_R^*)=\beta}
+$$ {#eq-review-score-foc}
+
+となる。左辺はあと1単位作業したときの限界品質改善、右辺はレビューを1単位待たせる間の期待上昇である。両者の一致点が、レビュー時評価を最大にする停止時刻を与える。
+
+$\Phi'$ が連続かつ狭義単調減少であるとする。$\Phi'(0)\le\beta$ では最早境界 $\tau_R^*=0$、$\Phi'(T)\ge\beta$ では期限境界 $\tau_R^*=T$ が最大点になる。その間の領域では、@eq-review-score-foc を満たす内点解が一意に定まる。したがって、一次条件の利用には内点性が、境界を含む結論には端点での傾き比較が対応する。
+
+## 初期要求水準と期待上昇率
+
+$E_0$ の変化は $S(\tau)$ を全時刻で同じ幅だけ上下へ移すため、$\tau_R^*$ は一定である。この不変性は、評価を品質と期待の加法的な差 $Q-E$ で表す設計に依存する。一方、$\beta$ は $S$ の傾きを変えるため、最適レビュー時刻を動かす。
+
+::: {.callout-tip title="実務で読む：水準と傾きを分ける"}
+高い要求水準を示すことは評価の水準に効き、期待する進捗ペースを示すことはレビュー時刻に効く。「期待している」と「この時刻までにこの程度の進捗を期待する」は、モデル上で別のパラメータに対応する。
+:::
+
+## 指数型の具体例
+
+一般結果を数値で確かめるため、具体的な品質生産関数として
+
+$$
+\Phi(w)=Q_\infty\left(1-e^{-\kappa w}\right),
+\qquad 0<Q_\infty\le100,\quad \kappa>0
+$$ {#eq-exponential-quality}
+
+を用いる。$Q_\infty$ は単独作業による漸近的品質上限、$\kappa$ は基礎的な品質改善速度である。限界品質改善は
+
+$$
+\Phi'(w)=Q_\infty\kappa e^{-\kappa w}
+$$ {#eq-exponential-marginal-quality}
+
+となる。内点解は
+
+$$
+\tau_R^*
+=\frac{1}{\kappa}
+\log\!\left(\frac{Q_\infty\kappa}{\beta}\right)
+$$ {#eq-exponential-review-time}
+
+であり、境界を含む解は
+
+$$
+\tau_R^*=
+\begin{cases}
+0,
+& \beta\ge Q_\infty\kappa,\\[3pt]
+\dfrac1\kappa\log\!\left(\dfrac{Q_\infty\kappa}{\beta}\right),
+& Q_\infty\kappa e^{-\kappa T}<\beta<Q_\infty\kappa,\\[8pt]
+T,
+& 0\le\beta\le Q_\infty\kappa e^{-\kappa T}
+\end{cases}
+$$ {#eq-exponential-review-boundaries}
+
+となる。指数型の内点領域では
+
+$$
+\frac{\partial\tau_R^*}{\partial\beta}
+=-\frac{1}{\kappa\beta}<0
+$$ {#eq-beta-comparative-statics}
+
+である。$Q_\infty$ と $\kappa$ を同じ値に保つ比較では、$\beta$ の上昇に伴ってレビュー時刻が前方へ移る。作業者の能力差を比較する場面では $Q_\infty$ と $\kappa$ も変化し、最適時刻は両側のパラメータが生む合成効果から決まる。
+
+## 三つの図を往復する
+
+::::: {.concept-layout .review-model-layout}
+
+:::: {.concept-main}
+
+品質と期待の値の交点は $S(\tau)=0$ となる時刻を表す。最適点を決めるのは値の一致よりも傾きの一致である。限界量のパネルで $\Phi'(t)$ と $\beta$ が交わる時刻は、評価パネルにおける $S(t)$ の最大点と対応する。
+
+スライダーでは $Q_\infty,\kappa,E_0,\beta$ を個別に動かせる。$E_0$ は品質と期待の差を平行移動させ、$\beta$ は傾き一致点を動かす。境界条件に入る設定では、サマリが最早境界と期限境界を区別する。
+
+::::
+
+:::: {.interactive-panel .review-model-panel aria-labelledby="review-score-widget-heading"}
+
+### レビュー時評価を動かす {#review-score-widget-heading .unnumbered .unlisted}
+
+```{ojs}
+//| label: fig-review-score
+//| fig-cap: "品質と期待の水準、限界量、レビュー時評価を同期表示し、傾き一致と境界解を示す。"
+//| echo: false
+{
+  const panel = renderReviewScoreWidget();
+  invalidation.then(() => panel.dispose());
+  return panel;
+}
+```
+
+::::
+
+:::::
+
+第1章で加わった問題構造は、レビューを待たせるコストである。次章ではレビューをフィードバック介入として捉え、レビュー後の品質改善をモデルへ加える。
