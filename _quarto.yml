@@ -6,7 +6,7 @@ project:
 
 book:
   title: "Expectation Arbitrage"
-  subtitle: "期待値曲線を踏まえたタスクポートフォリオ最適化"
+  subtitle: "期待水準曲線を踏まえたタスクポートフォリオ最適化"
   author: "tak-tak-toe"
   description: "レビュー時評価、フィードバックによる品質改善、複数タスクの時間配分を数理モデルと決定論的最適化で考えるノート"
   site-url: "https://tak-tak-toe.github.io/expectation-arbitrage/"

@@ -36,15 +36,15 @@ const DEFAULTS = Object.freeze({
 
 const CONTROLS = Object.freeze([
   { key: "qInfinity", label: "品質上限 Q∞", min: 40, max: 100, step: 1, decimals: 0 },
-  { key: "kappa", label: "品質改善速度 κ", min: 0.05, max: 0.6, step: 0.01, decimals: 2 },
-  { key: "e0", label: "初期要求水準 E₀", min: 0, max: 80, step: 1, decimals: 0 },
-  { key: "beta", label: "期待上昇率 β", min: 0, max: 20, step: 0.25, decimals: 2 },
+  { key: "kappa", label: "品質の立ち上がり速度 κ", min: 0.05, max: 0.6, step: 0.01, decimals: 2 },
+  { key: "e0", label: "開始時点の期待水準 E₀", min: 0, max: 80, step: 1, decimals: 0 },
+  { key: "beta", label: "期待される改善ペース β", min: 0, max: 20, step: 0.25, decimals: 2 },
 ]);
 
 const STATUS_LABELS = Object.freeze({
-  interior: "内点解：限界量が一致",
-  "early-boundary": "最早境界：τ = 0",
-  "deadline-boundary": `期限境界：τ = ${DEADLINE}`,
+  interior: "途中で品質改善と期待上昇が釣り合う",
+  "early-boundary": "開始時点でレビュー：τ = 0",
+  "deadline-boundary": `締切でレビュー：τ = ${DEADLINE}`,
 });
 
 function parameters(state) {
@@ -70,9 +70,9 @@ function drawPanels(instance, panels, state, result, width) {
     width,
     xDomain: [0, DEADLINE],
     yDomain: paddedDomain([...quality, ...expected].map(point => point.y), { nonnegative: true }),
-    title: "品質とマネージャー期待",
+    title: "品質とレビュワーの期待水準",
     description: `時刻0から${DEADLINE}までの基準品質と期待品質。最適レビュー時刻は${formatNumber(result.reviewTime)}。`,
-    xLabel: "カレンダー時刻 t",
+    xLabel: "業務時間の実経過時間 t（時間）",
     yLabel: "品質・期待",
   });
   addPath(levelFrame, quality, "mw-primary");
@@ -88,7 +88,7 @@ function drawPanels(instance, panels, state, result, width) {
     yDomain: paddedDomain([...marginal, ...slope].map(point => point.y), { nonnegative: true }),
     title: "限界品質改善と期待上昇率",
     description: `限界品質改善と期待上昇率を比較する。選択時刻は${formatNumber(result.reviewTime)}。`,
-    xLabel: "カレンダー時刻 t",
+    xLabel: "業務時間の実経過時間 t（時間）",
     yLabel: "限界量",
   });
   addPath(marginalFrame, marginal, "mw-primary");
@@ -104,7 +104,7 @@ function drawPanels(instance, panels, state, result, width) {
     yDomain: paddedDomain(score.map(point => point.y)),
     title: "レビュー時評価",
     description: `レビュー時評価Sの最大点は${formatNumber(result.reviewTime)}。`,
-    xLabel: "レビュー時刻 τ",
+    xLabel: "レビュー時刻 τ（業務時間）",
     yLabel: "S(τ)",
   });
   addPath(scoreFrame, score, "mw-primary");
@@ -140,13 +140,13 @@ export function renderReviewScoreWidget(initial = {}) {
 
   const plots = htmlElement("div", "mw-plots");
   const panels = {
-    levels: createPanel("A｜品質と期待", "二曲線の値の差が、その時刻のレビュー評価です。"),
-    marginal: createPanel("B｜限界量", "Φ′(t) と β の一致が内点条件を表します。"),
-    score: createPanel("C｜レビュー時評価", "限界量の一致点が S(t) の頂点へ対応します。"),
+    levels: createPanel("A｜品質と期待水準", "二曲線の縦の差が、その時刻のレビュー評価です。"),
+    marginal: createPanel("C｜限界品質改善と期待上昇", "途中で釣り合う設定では、二曲線の交点が評価の最大点と同じ時刻になります。"),
+    score: createPanel("B｜レビュー時評価", "上図の縦の差を S(t) として描きます。三つの図の縦線は同じ最適時刻です。"),
   };
   panels.levels.panel.append(createLegend([
     ["mw-swatch-primary", "基準品質 Φ(t)"],
-    ["mw-swatch-accent", "期待品質 E(t)"],
+    ["mw-swatch-accent", "期待水準 E(t)"],
     ["mw-swatch-secondary", "最適レビュー時刻"],
   ]));
   panels.marginal.panel.append(createLegend([
@@ -157,7 +157,7 @@ export function renderReviewScoreWidget(initial = {}) {
     ["mw-swatch-primary", "レビュー時評価 S(t)"],
     ["mw-swatch-secondary", "最大点"],
   ]));
-  plots.append(panels.levels.panel, panels.marginal.panel, panels.score.panel);
+  plots.append(panels.levels.panel, panels.score.panel, panels.marginal.panel);
   const details = htmlElement("div", "mw-details");
   instance.root.append(plots, details);
 
