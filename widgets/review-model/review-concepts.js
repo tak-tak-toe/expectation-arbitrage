@@ -1,4 +1,4 @@
-import { DEADLINE, DEFAULT_WORKER, DEFAULT_MANAGER, phi, expectation, reviewScoreAtTime } from "./model.js";
+import { DEADLINE, DEFAULT_WORKER, DEFAULT_MANAGER, phi, phiPrime, expectation, reviewScoreAtTime } from "./model.js";
 import {
   createWidgetRoot, createPanel, createLegend, createFrame, sampleRange,
   addPath, addCircle, addHorizontalLine, svgElement, formatNumber, mountResponsive,
@@ -9,10 +9,10 @@ const TIME_LABEL = "業務時間の実経過時間 t（時間）";
 const WORK_LABEL = "累積実作業時間 w（時間）";
 const EXAMPLES = {
   time: ["二つの時間", "作業 → 休憩 → 作業の順に、実経過時間と累積実作業時間を比べます。"],
-  quality: ["品質曲線の概形", "初期の1時間と、10時間目から11時間目の改善幅を比べます。"],
+  quality: ["品質と残る改善力", "上段は累積品質、下段は着手直後を1とした追加作業の改善力です。"],
   expectation: ["期待水準の切片と傾き", "開始時点の期待水準と、時間とともに期待する改善ペースを読み取ります。"],
   score: ["品質と期待の差を読む", "同じ時刻の縦の差を、レビュー時評価として別の軸へ写します。"],
-  exponential: ["上限と立ち上がり", "品質上限を80に揃え、κだけを変えた曲線を比較します。"],
+  exponential: ["漸近値と立ち上がり", "介入前の基準曲線の漸近値を80に揃え、κだけを変えた曲線を比較します。"],
 };
 
 function label(frame, x, y, text, attributes = {}) {
@@ -83,6 +83,25 @@ export function renderReviewConcept(kind) {
         ["mw-swatch-secondary", "0→1時間の改善幅：" + formatNumber(phi(1) - phi(0))],
         ["mw-swatch-accent", "10→11時間の改善幅：" + formatNumber(phi(11) - phi(10))],
       ];
+      const productivityFrame = createFrame({
+        id: instance.id + "-productivity", width, height: 240,
+        xDomain: [0, DEADLINE], yDomain: [0, 1.1],
+        title: "相対限界生産性 p(w)",
+        description: "着手直後の1から、作業とともに追加作業の改善力の比が低下します。",
+        xLabel: WORK_LABEL, yLabel: "相対限界生産性 p(w)",
+      });
+      const relativeProductivity = w => phiPrime(w) / phiPrime(0);
+      addPath(productivityFrame, samples.map(x => ({ x, y: relativeProductivity(x) })), "mw-secondary");
+      addCircle(productivityFrame, 0, 1);
+      label(productivityFrame, 1, 1, "p(0) = 1", { "text-anchor": "start" });
+      const exampleWork = Math.log(1 / 0.4) / DEFAULT_WORKER.kappa;
+      addCircle(productivityFrame, exampleWork, relativeProductivity(exampleWork));
+      segment(productivityFrame, exampleWork, 0, exampleWork, 0.4);
+      label(productivityFrame, exampleWork + 1, 0.45, "p(w) = 0.4：着手直後の40%", { "text-anchor": "start" });
+      panel.chart.replaceChildren(frame.svg, createLegend(legend), productivityFrame.svg, createLegend([
+        ["mw-swatch-secondary", "相対限界生産性 p(w) = Φ′(w) / Φ′(0)"],
+      ]));
+      return;
     } else if (kind === "expectation") {
       addPath(frame, samples.map(x => ({ x, y: expectation(x) })), "mw-accent");
       addCircle(frame, 0, DEFAULT_MANAGER.e0);
@@ -100,7 +119,7 @@ export function renderReviewConcept(kind) {
       }
       addHorizontalLine(frame, 80);
       label(frame, 17, 90, "Q∞ = 80");
-      legend = [["mw-swatch-muted", "κ = 0.10"], ["mw-swatch-primary", "κ = 0.25"], ["mw-swatch-secondary", "κ = 0.50"], ["mw-swatch-threshold", "共通の品質上限 Q∞"]];
+      legend = [["mw-swatch-muted", "κ = 0.10"], ["mw-swatch-primary", "κ = 0.25"], ["mw-swatch-secondary", "κ = 0.50"], ["mw-swatch-threshold", "基準曲線の共通の漸近値 Q∞"]];
     } else {
       const selectedTime = 8;
       const quality = phi(selectedTime);

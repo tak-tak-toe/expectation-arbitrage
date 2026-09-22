@@ -35,7 +35,7 @@ const DEFAULTS = Object.freeze({
 });
 
 const CONTROLS = Object.freeze([
-  { key: "qInfinity", label: "品質上限 Q∞", min: 40, max: 100, step: 1, decimals: 0 },
+  { key: "qInfinity", label: "基準曲線の漸近値 Q∞", min: 40, max: 100, step: 1, decimals: 0 },
   { key: "kappa", label: "品質の立ち上がり速度 κ", min: 0.05, max: 0.6, step: 0.01, decimals: 2 },
   { key: "e0", label: "開始時点の期待水準 E₀", min: 0, max: 80, step: 1, decimals: 0 },
   { key: "beta", label: "期待される改善ペース β", min: 0, max: 20, step: 0.25, decimals: 2 },
