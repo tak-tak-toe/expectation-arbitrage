@@ -39,7 +39,7 @@ function renderChapterTwo(mode, initial) {
   const titles = {
     recovery: ["レビュー時刻と回復幅", "各横軸の時刻で一度レビューする別々のケースを比較します。"],
     trajectory: ["一回のレビュー後の推移", "選んだ時刻で一度回復し、その後も同じκで低下します。"],
-    quality: ["レビュー材料の成熟と最適時刻", "λを変え、品質の最大点と縦線の移動を確認します。灰色はλを初期値に保った比較です。"],
+    quality: ["レビュー材料の成熟速度と最適時刻", "λを大きくするとレビュー材料がより早く成熟し、他条件一定では最適レビュー時刻が前方へ移ります。灰色はλを初期値に保った比較です。"],
   };
   const instance = createWidgetRoot(...titles[mode]);
   const controller = new AbortController();
@@ -103,8 +103,8 @@ function renderChapterTwo(mode, initial) {
       instance.status.textContent = worker.lambda === defaults.lambda
         ? "λを動かして最適レビュー時刻を比較"
         : worker.lambda > defaults.lambda
-          ? "レビュー材料の成熟が速い → 最適レビュー時刻が早まる"
-          : "レビュー材料の成熟が遅い → 最適レビュー時刻が遅くなる";
+          ? "レビュー材料の成熟が速い → 最適レビュー時刻が前方へ移る"
+          : "レビュー材料の成熟が遅い → 最適レビュー時刻が後方へ移る";
       details.textContent = "比較設定の最適時刻は " + formatNumber(reference.reviewTime)
         + " 時間、現在は " + formatNumber(optimum.reviewTime)
         + " 時間です。κとQ∞を揃えてλだけの影響を比べています。";

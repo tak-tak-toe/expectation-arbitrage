@@ -97,12 +97,12 @@ test("Chapter 2 widgets construct, update endpoint controls, reset and dispose u
         lambda.listeners.input();
         assert.ok(time() > baselineTime);
         assert.ok(shift() > 0);
-        assert.match(status.textContent, /遅くなる/);
+        assert.match(status.textContent, /後方へ移る/);
         lambda.valueAsNumber = 1;
         lambda.listeners.input();
         assert.ok(time() < baselineTime);
         assert.ok(shift() < 0);
-        assert.match(status.textContent, /早まる/);
+        assert.match(status.textContent, /前方へ移る/);
       }
       for (const input of inputs) {
         for (const value of [Number(input.min), Number(input.max)]) {
