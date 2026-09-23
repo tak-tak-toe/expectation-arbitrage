@@ -79,8 +79,14 @@ test("Chapter 2 widgets construct, update endpoint controls, reset and dispose u
     for (const render of [renderRecoveryReviewWidget, renderProductivityTrajectoryWidget, renderQualityReviewWidget]) {
       const root = render({ rhoBar: 0 });
       const inputs = all(root).filter(node => node.name === "input");
-      assert.equal(inputs.length, 3);
+      assert.equal(inputs.length, render === renderQualityReviewWidget ? 2 : 3);
+      assert.ok(inputs[0].id.endsWith("-lambda"));
+      assert.ok(inputs[1].id.endsWith("-kappa"));
       assert.ok(inputs.every(node => !node.id.includes("rhoBar")));
+      assert.ok(inputs.every(node => !node.id.includes("qInfinity")));
+      const visibleText = all(root).map(node => node.textContent || "").join(" ");
+      assert.doesNotMatch(visibleText, /rhoBar|ρ̄|レビュー材料の成熟 ρ/);
+      if (render !== renderProductivityTrajectoryWidget) assert.match(visibleText, /レビュー有効度 ρ/);
       if (render === renderQualityReviewWidget) {
         const lambda = inputs.find(node => node.id.endsWith("-lambda"));
         const status = all(root).find(node => node.attributes?.role === "status");

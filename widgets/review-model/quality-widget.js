@@ -27,13 +27,13 @@ export function chapterTwoReview(x, initial = {}) {
 }
 
 const SPEEDS = [
-  { key: "kappa", label: "限界生産性の低下速度 κ", min: 0.05, max: 0.6, step: 0.01, decimals: 2 },
   { key: "lambda", label: "レビュー材料の成熟速度 λ", min: 0.03, max: 1, step: 0.01, decimals: 2 },
+  { key: "kappa", label: "限界生産性の低下速度 κ", min: 0.05, max: 0.6, step: 0.01, decimals: 2 },
 ];
 const REVIEW_TIME = { key: "reviewTime", label: "レビュー時刻 x", min: 0, max: DEADLINE, step: 0.1, decimals: 1 };
 
 function renderChapterTwo(mode, initial) {
-  const defaults = { ...chapterTwoWorker(initial), reviewTime: 10 };
+  const defaults = { ...chapterTwoWorker({ ...initial, qInfinity: DEFAULT_WORKER.qInfinity }), reviewTime: 10 };
   const state = { ...defaults };
   const isQuality = mode === "quality";
   const titles = {
@@ -46,10 +46,7 @@ function renderChapterTwo(mode, initial) {
   const cleanups = [() => controller.abort()];
   let render = () => {};
   let width = 680;
-  createControls(instance, state, defaults, isQuality ? [
-    { key: "qInfinity", label: "基準曲線の漸近値 Q∞", min: 40, max: 100, step: 1, decimals: 0 },
-    ...SPEEDS,
-  ] : [...SPEEDS, REVIEW_TIME], () => render(), controller.signal);
+  createControls(instance, state, defaults, isQuality ? SPEEDS : [...SPEEDS, REVIEW_TIME], () => render(), controller.signal);
   const { container, metrics } = createMetrics(isQuality ? {
     time: "品質最大レビュー時刻 xQ*", quality: "最終品質", gain: "最終品質の上乗せ ΔQR", shift: "比較設定からの時刻差（時間）",
   } : { before: "レビュー直前 p⁻", after: "レビュー直後 p⁺", recovery: "回復幅 ΔpR" });
@@ -98,9 +95,9 @@ function renderChapterTwo(mode, initial) {
           ["mw-swatch-threshold", "レビューなし Φ(T)"],
           ["mw-swatch-secondary", "現在の最適時刻 xQ*"],
         ], [["optimal", optimum.reviewTime], ["horizontal", 0, baseline], ["point", optimum.reviewTime, optimum.finalQuality]]);
-      panel("factors", "最終品質上乗せの三因子", "λを変えると材料の成熟を表す曲線が変わります。回復可能量・利用可能量はκと残り時間で決まります。", [0, 1], "因子の値", [
+      panel("factors", "最終品質上乗せの三因子", "材料の成熟速度λを変えるとレビュー有効度の曲線が変わります。回復可能量・利用可能量はκと残り時間で決まります。", [0, 1], "因子の値", [
         [series("effectiveness"), "mw-accent"], [series("recoverable"), "mw-primary"], [series("usable"), "mw-secondary"],
-      ], [["mw-swatch-accent", "レビュー材料の成熟 ρ(x)"], ["mw-swatch-primary", "回復可能量 1−p⁻"], ["mw-swatch-secondary", "利用可能量"]]);
+      ], [["mw-swatch-accent", "レビュー有効度 ρ(x)"], ["mw-swatch-primary", "回復可能量 1−p⁻"], ["mw-swatch-secondary", "利用可能量"]]);
       const shift = optimum.reviewTime - reference.reviewTime;
       for (const [key, value] of Object.entries({ time: optimum.reviewTime, quality: optimum.finalQuality, gain: optimum.finalQuality - baseline, shift })) setOutput(metrics[key].output, formatNumber(value));
       instance.status.textContent = worker.lambda === defaults.lambda
@@ -121,7 +118,7 @@ function renderChapterTwo(mode, initial) {
         ], [["mw-swatch-muted", "レビュー直前 p⁻(x)"], ["mw-swatch-primary", "その時刻でのレビュー直後 p⁺(x)"], ["mw-swatch-secondary", "選択時刻の回復幅"]], [["selected", x], ["point", x, selected.preReviewProductivity], ["point", x, selected.postReviewProductivity]]);
         panel("gain", "回復幅を決める二つの要因", "レビュー有効度×回復可能量が回復幅 ΔpR です。", [0, 1], "比率・回復幅", [
           [series("effectiveness"), "mw-accent"], [series("recoverable"), "mw-muted"], [series("recovery"), "mw-secondary"],
-        ], [["mw-swatch-accent", "有効度 ρ(x)"], ["mw-swatch-muted", "回復可能量 1−p⁻(x)"], ["mw-swatch-secondary", "回復幅 ΔpR(x)"]], [["selected", x]]);
+        ], [["mw-swatch-accent", "レビュー有効度 ρ(x)"], ["mw-swatch-muted", "回復可能量 1−p⁻(x)"], ["mw-swatch-secondary", "回復幅 ΔpR(x)"]], [["selected", x]]);
       } else {
         const before = sampleRange(x).map(t => ({ x: t, y: Math.exp(-worker.kappa * t) }));
         const after = sampleRange(DEADLINE, 321, x).map(t => ({ x: t, y: propagateState(selected.afterReviewState, t - x, worker).productivity }));
@@ -132,7 +129,7 @@ function renderChapterTwo(mode, initial) {
       }
       for (const [key, value] of Object.entries({ before: selected.preReviewProductivity, after: selected.postReviewProductivity, recovery: selected.recovery })) setOutput(metrics[key].output, formatNumber(value));
       instance.status.textContent = `選択したレビュー時刻 x = ${formatNumber(x)}`;
-      details.textContent = "λはレビュー材料の成熟、κは相対限界生産性の低下を表します。この図の設定は他の図から独立しています。";
+      details.textContent = "λはレビュー材料の成熟速度、κは相対限界生産性の低下速度を表します。この図の設定は他の図から独立しています。";
     }
     instance.root.setAttribute("aria-busy", "false");
   };
