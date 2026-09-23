@@ -81,6 +81,23 @@ test("Chapter 2 widgets construct, update endpoint controls, reset and dispose u
       const inputs = all(root).filter(node => node.name === "input");
       assert.equal(inputs.length, 3);
       assert.ok(inputs.every(node => !node.id.includes("rhoBar")));
+      if (render === renderQualityReviewWidget) {
+        const lambda = inputs.find(node => node.id.endsWith("-lambda"));
+        const status = all(root).find(node => node.attributes?.role === "status");
+        const time = () => Number(all(root).find(node => node.attributes?.["aria-label"] === "品質最大レビュー時刻 xQ*").textContent);
+        const shift = () => Number(all(root).find(node => node.attributes?.["aria-label"] === "比較設定からの時刻差（時間）").textContent);
+        const baselineTime = time();
+        lambda.valueAsNumber = 0.03;
+        lambda.listeners.input();
+        assert.ok(time() > baselineTime);
+        assert.ok(shift() > 0);
+        assert.match(status.textContent, /遅くなる/);
+        lambda.valueAsNumber = 1;
+        lambda.listeners.input();
+        assert.ok(time() < baselineTime);
+        assert.ok(shift() < 0);
+        assert.match(status.textContent, /早まる/);
+      }
       for (const input of inputs) {
         for (const value of [Number(input.min), Number(input.max)]) {
           input.valueAsNumber = value;
