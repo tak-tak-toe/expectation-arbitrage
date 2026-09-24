@@ -5,6 +5,32 @@ import {
   oneTaskObjectives, oneReviewOutcome, DEADLINE, normalizeOneTaskParameters,
 } from "./model.js";
 import { evaluationHeatmap, renderOverallEvaluationWidget, renderTwoReviewTimeline } from "./evaluation-widget.js";
+import { chapterThreeParameters, optimalScheduleTrajectory } from "./chapter-three.js";
+
+test("Chapter 3 fixes recovery strength and trajectories reuse shared dynamics", () => {
+  const config = chapterThreeParameters({ rhoBar: 0.2, worker: { rhoBar: 0.1 } });
+  assert.equal(config.rhoBar, 1);
+  for (const beta of [0, 3, 100]) {
+    const parameters = chapterThreeParameters({ ...config, beta });
+    const optimum = optimalTwoReviewTimes(parameters);
+    const trajectory = optimalScheduleTrajectory(optimum, parameters);
+    const first = trajectory.before.at(-1), post = trajectory.after[0], last = trajectory.after.at(-1);
+    close(first.quality, optimum.objectives.reviewQuality);
+    close(post.quality, first.quality);
+    close(last.quality, optimum.objectives.finalQuality);
+    close(first.expectation, first.quality - optimum.objectives.intermediateScore);
+    close(last.expectation, last.quality - optimum.objectives.finalScore);
+    close(first.productivity, optimum.objectives.preReviewProductivity);
+    close(post.productivity, optimum.objectives.postReviewProductivity);
+    for (const point of [...trajectory.before, ...trajectory.after]) assert.ok(point.t <= optimum.t2 + 1e-12);
+    if (optimum.conditional.status === "interior") close(last.productivity, trajectory.threshold);
+    if (optimum.conditional.status === "deadline-finalization") assert.ok(last.productivity >= trajectory.threshold);
+    if (beta === 100) {
+      assert.equal(optimum.conditional.status, "immediate-finalization");
+      assert.ok(trajectory.threshold > 1);
+    }
+  }
+});
 
 const close = (a, b, tolerance = 1e-9) => assert.ok(Math.abs(a - b) <= tolerance, a + " != " + b);
 
@@ -126,11 +152,19 @@ test("Chapter 3 widgets construct, update all controls, reset and dispose", () =
   const all = node => [node, ...node.children.flatMap(all)];
   try {
     const timeline = renderTwoReviewTimeline();
+    assert.equal(timeline.className, "model-widget");
+    assert.ok(timeline.children.some(n => n.name === "style"));
+    assert.ok(timeline.children.find(n => n.className === "mw-plots").children.some(n => n.name === "svg"));
     assert.match(all(timeline).map(n => n.textContent || "").join(" "), /最終レビュー・最終化/);
     timeline.dispose();
-    const root = renderOverallEvaluationWidget();
+    const root = renderOverallEvaluationWidget({ rhoBar: 0.2 });
+    const expected = optimalTwoReviewTimes(chapterThreeParameters({ rhoBar: 0.2 }));
+    const displayedAverage = () => Number(all(root).find(n => n.attributes?.["aria-label"] === "総合評価 J").textContent);
+    close(displayedAverage(), expected.objectives.averageScore, 0.005);
     const inputs = all(root).filter(n => n.name === "input");
-    assert.equal(inputs.length, 6);
+    assert.equal(inputs.length, 5);
+    assert.ok(inputs.every(n => !n.id.includes("rhoBar")));
+    assert.equal(all(root).filter(n => n.name === "svg").length, 3);
     assert.ok(inputs.every(n => !n.id.includes("omega")));
     for (const input of inputs) for (const value of [Number(input.min), Number(input.max)]) {
       input.valueAsNumber = value;
@@ -143,8 +177,9 @@ test("Chapter 3 widgets construct, update all controls, reset and dispose", () =
     assert.doesNotMatch(texts, /ω|重み付き|三つの最適/);
     assert.match(texts, /総合評価 J/);
     all(root).find(n => n.name === "button").listeners.click();
+    close(displayedAverage(), expected.objectives.averageScore, 0.005);
     root.dispose();
-    assert.equal(disconnected, 2);
+    assert.equal(disconnected, 4);
   } finally {
     if (originalDocument === undefined) delete globalThis.document; else globalThis.document = originalDocument;
     if (originalObserver === undefined) delete globalThis.ResizeObserver; else globalThis.ResizeObserver = originalObserver;

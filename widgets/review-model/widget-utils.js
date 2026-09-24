@@ -97,6 +97,10 @@ export const MODEL_WIDGET_STYLES = `
   overflow-wrap: anywhere;
 }
 .model-widget .mw-plots { display: grid; gap: .9rem; min-width: 0; }
+.model-widget .mw-plot-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .9rem; min-width: 0; }
+@container (max-width: 700px) {
+  .model-widget .mw-plot-pair { grid-template-columns: minmax(0, 1fr); }
+}
 .model-widget .mw-panel {
   min-width: 0;
   margin: 0;
@@ -197,6 +201,18 @@ export function formatNumber(value, decimals = 2) {
 export function setOutput(output, value) {
   output.value = value;
   output.textContent = value;
+}
+
+export function createBareWidgetRoot(ariaLabel) {
+  const root = htmlElement("section", "model-widget");
+  if (ariaLabel) {
+    root.setAttribute("role", "group");
+    root.setAttribute("aria-label", ariaLabel);
+  }
+  const style = htmlElement("style");
+  style.textContent = MODEL_WIDGET_STYLES;
+  root.append(style);
+  return root;
 }
 
 export function createWidgetRoot(title, intro) {

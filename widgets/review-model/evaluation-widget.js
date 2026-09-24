@@ -1,20 +1,19 @@
 import {
-  DEADLINE, DEFAULT_WORKER, DEFAULT_MANAGER, twoReviewObjectives,
+  DEADLINE, twoReviewObjectives,
   optimalFinalizationTimeGivenIntermediate, optimalTwoReviewTimes,
 } from "./model.js";
+import { chapterThreeParameters, optimalScheduleTrajectory } from "./chapter-three.js";
 import {
-  htmlElement, svgElement, formatNumber, setOutput, createWidgetRoot,
+  htmlElement, svgElement, formatNumber, setOutput, createWidgetRoot, createBareWidgetRoot,
   createControls, createMetrics, createPanel, createLegend, sampleRange,
-  createFrame, addPath, addVerticalLine, addCircle, mountResponsive,
+  createFrame, addPath, addVerticalLine, addHorizontalLine, addCircle, mountResponsive, paddedDomain,
 } from "./widget-utils.js";
 
-const DEFAULTS = Object.freeze({ ...DEFAULT_WORKER, ...DEFAULT_MANAGER });
 const CONTROLS = Object.freeze([
   { key: "qInfinity", label: "基準品質曲線の漸近値 Q∞", min: 40, max: 100, step: 1, decimals: 0 },
   { key: "kappa", label: "品質曲線の立ち上がり κ", min: 0.05, max: 0.6, step: 0.01, decimals: 2 },
   { key: "e0", label: "初期要求水準 E₀", min: 0, max: 80, step: 1, decimals: 0 },
   { key: "beta", label: "期待上昇率 β", min: 0, max: 20, step: 0.25, decimals: 2 },
-  { key: "rhoBar", label: "レビュー有効度の上限 ρ̄", min: 0, max: 1, step: 0.05, decimals: 2 },
   { key: "lambda", label: "レビュー材料の成熟速度 λ", min: 0.03, max: 1, step: 0.01, decimals: 2 },
 ]);
 
@@ -27,7 +26,9 @@ function label(frame, text, x, y, anchor = "middle") {
 
 /** Illustrative times define the schedule, not an optimized numerical example. */
 export function renderTwoReviewTimeline() {
+  const root = createBareWidgetRoot("中間レビューと最終化までの累積実作業時間");
   const host = htmlElement("div", "mw-plots");
+  root.append(host);
   const cleanups = [];
   mountResponsive(host, width => {
     const frame = createFrame({
@@ -43,16 +44,17 @@ export function renderTwoReviewTimeline() {
     addCircle(frame, t1, t1);
     addCircle(frame, t2, t2);
     label(frame, "t₁：中間レビュー", t1, 23);
-    label(frame, "t₂：最終レビュー・最終化", t2, 20);
+    label(frame, "t₂：最終レビュー・最終化", width < 400 ? DEADLINE : t2, 20, width < 400 ? "end" : "middle");
     label(frame, "T：締切", DEADLINE, 11, "end");
     host.replaceChildren(frame.svg);
   }, cleanups);
-  host.dispose = () => cleanups.splice(0).forEach(cleanup => cleanup());
-  return host;
+  root.dispose = () => cleanups.splice(0).forEach(cleanup => cleanup());
+  return root;
 }
 
 // Regular display mesh only. The optimizer never reads these samples.
 export function evaluationHeatmap(parameters, divisions = 60) {
+  const config = chapterThreeParameters(parameters);
   const cells = [];
   const step = DEADLINE / divisions;
   for (let i = 0; i < divisions; i++) for (let j = i; j < divisions; j++) {
@@ -63,12 +65,12 @@ export function evaluationHeatmap(parameters, divisions = 60) {
       : [[a, b], [a, nextB], [nextA, nextB], [nextA, b]];
     const t1 = vertices.reduce((sum, point) => sum + point[0], 0) / vertices.length;
     const t2 = vertices.reduce((sum, point) => sum + point[1], 0) / vertices.length;
-    cells.push({ vertices, value: twoReviewObjectives(t1, t2, parameters).averageScore });
+    cells.push({ vertices, value: twoReviewObjectives(t1, t2, config).averageScore });
   }
   return cells;
 }
 
-function drawPanel(instance, panel, config, optimum, width) {
+function drawHeatmapPanel(instance, panel, config, optimum, width) {
   const frame = createFrame({
     id: instance.id + "-evaluation", width, height: 380,
     xDomain: [0, DEADLINE], yDomain: [0, DEADLINE],
@@ -98,8 +100,54 @@ function drawPanel(instance, panel, config, optimum, width) {
   return "色の範囲：J = " + formatNumber(low) + "（淡色）〜 " + formatNumber(high) + "（濃色）";
 }
 
+function trajectoryFrame(instance, suffix, width, yDomain, yLabel) {
+  return createFrame({
+    id: instance.id + suffix, width, height: 280,
+    xDomain: [0, DEADLINE], yDomain, title: yLabel,
+    description: "最適スケジュールの軌跡は最終化時刻で終了する。",
+    xLabel: "実経過時間 t", yLabel,
+  });
+}
+
+function reviewMarkers(frame, optimum) {
+  addVerticalLine(frame, optimum.t1);
+  addVerticalLine(frame, optimum.t2, "mw-marker-accent");
+}
+
+function drawQualityExpectationPanel(instance, panel, optimum, trajectory, width) {
+  const points = [...trajectory.before, ...trajectory.after];
+  const frame = trajectoryFrame(instance, "-quality", width,
+    paddedDomain(points.flatMap(point => [point.quality, point.expectation, 0])), "品質・期待水準");
+  addPath(frame, points.map(point => ({ x: point.t, y: point.quality })), "mw-primary");
+  addPath(frame, points.map(point => ({ x: point.t, y: point.expectation })), "mw-secondary");
+  reviewMarkers(frame, optimum);
+  for (const point of [trajectory.before.at(-1), trajectory.after.at(-1)]) {
+    addPath(frame, [{ x: point.t, y: point.quality }, { x: point.t, y: point.expectation }], "mw-muted");
+    addCircle(frame, point.t, point.quality);
+    addCircle(frame, point.t, point.expectation, "mw-point-accent");
+  }
+  panel.chart.replaceChildren(frame.svg);
+}
+
+function drawProductivityPanel(instance, panel, optimum, trajectory, width) {
+  const frame = trajectoryFrame(instance, "-productivity", width, [0, 1], "相対限界生産性 p");
+  addPath(frame, trajectory.baseline, "mw-muted");
+  // Duplicate t1 samples intentionally draw the instantaneous p-minus to p-plus jump.
+  addPath(frame, [...trajectory.before, ...trajectory.after].map(point => ({
+    x: point.t, y: point.productivity,
+  })), "mw-primary");
+  if (trajectory.threshold <= 1) addHorizontalLine(frame, trajectory.threshold);
+  reviewMarkers(frame, optimum);
+  const last = trajectory.after.at(-1);
+  addCircle(frame, last.t, last.productivity);
+  panel.thresholdNote.textContent = trajectory.threshold > 1
+    ? "現在の最終化閾値 β/(Q∞κ) = " + formatNumber(trajectory.threshold) + " は1を超えるため、pの表示範囲外です。"
+    : "最終化閾値 β/(Q∞κ) = " + formatNumber(trajectory.threshold);
+  panel.chart.replaceChildren(frame.svg);
+}
+
 export function renderOverallEvaluationWidget(initial = {}) {
-  const defaults = { ...DEFAULTS, ...initial };
+  const defaults = chapterThreeParameters(initial);
   const state = { ...defaults };
   const instance = createWidgetRoot(
     "中間レビューと最終化を同時に選ぶ",
@@ -107,7 +155,7 @@ export function renderOverallEvaluationWidget(initial = {}) {
   );
   const controller = new AbortController();
   const cleanups = [() => controller.abort()];
-  let width = 680, render = () => {};
+  let width = 680, qualityWidth = 320, productivityWidth = 320, render = () => {};
   createControls(instance, state, defaults, CONTROLS, () => render(), controller.signal);
   const { container, metrics } = createMetrics({
     t1: "最適中間レビュー時刻 t₁*", t2: "最適最終化時刻 t₂*",
@@ -124,10 +172,30 @@ export function renderOverallEvaluationWidget(initial = {}) {
     ["mw-swatch-muted", "対角線：t₂ = t₁"],
   ]));
   plots.append(panel.panel);
+  const pair = htmlElement("div", "mw-plot-pair");
+  const quality = createPanel("最適スケジュールの品質と期待",
+    "二つのレビュー時刻での品質と期待の差が、それぞれ S₁、S₂ です。");
+  const productivity = createPanel("最適スケジュールの相対限界生産性",
+    "中間レビューで p が回復し、再び低下します。内点解では閾値に達した時刻が最終化時刻です。");
+  const timingLegend = [
+    ["mw-swatch-secondary", "中間レビュー t₁*"],
+    ["mw-swatch-accent", "最終レビュー・最終化 t₂*"],
+  ];
+  quality.panel.append(createLegend([
+    ["mw-swatch-primary", "成果物品質 Q(t)"], ["mw-swatch-secondary", "期待水準 E(t)"], ...timingLegend,
+  ]));
+  productivity.panel.append(createLegend([
+    ["mw-swatch-muted", "レビューなし"], ["mw-swatch-primary", "最適スケジュール"],
+    ["mw-swatch-threshold", "最終化閾値 β/(Q∞κ)"], ...timingLegend,
+  ]));
+  productivity.thresholdNote = htmlElement("p", "mw-panel-note");
+  productivity.panel.append(productivity.thresholdNote);
+  pair.append(quality.panel, productivity.panel);
+  plots.append(pair);
   const details = htmlElement("div", "mw-details");
   instance.root.append(plots, details);
   render = () => {
-    const config = { ...state, deadline: DEADLINE };
+    const config = chapterThreeParameters(state);
     const optimum = optimalTwoReviewTimes(config);
     for (const key of Object.keys(metrics)) {
       setOutput(metrics[key].output, formatNumber(key === "t1" || key === "t2"
@@ -139,7 +207,10 @@ export function renderOverallEvaluationWidget(initial = {}) {
     }[optimum.conditional.status];
     instance.status.textContent = status;
     instance.status.dataset.state = optimum.conditional.status;
-    const colorText = drawPanel(instance, panel, config, optimum, width);
+    const colorText = drawHeatmapPanel(instance, panel, config, optimum, width);
+    const trajectory = optimalScheduleTrajectory(optimum, config);
+    drawQualityExpectationPanel(instance, quality, optimum, trajectory, qualityWidth);
+    drawProductivityPanel(instance, productivity, optimum, trajectory, productivityWidth);
     details.replaceChildren(
       htmlElement("p", undefined, colorText),
       htmlElement("p", undefined,
@@ -150,6 +221,8 @@ export function renderOverallEvaluationWidget(initial = {}) {
     instance.root.setAttribute("aria-busy", "false");
   };
   mountResponsive(plots, nextWidth => { width = nextWidth; render(); }, cleanups);
+  mountResponsive(quality.chart, nextWidth => { qualityWidth = nextWidth; render(); }, cleanups);
+  mountResponsive(productivity.chart, nextWidth => { productivityWidth = nextWidth; render(); }, cleanups);
   instance.root.dispose = () => cleanups.splice(0).forEach(cleanup => cleanup());
   return instance.root;
 }
