@@ -62,7 +62,6 @@ export function twoReviewEvaluation({
   reviewTime,
   finalTime,
   manager = DEFAULT_MANAGER,
-  omega = 0.5,
 }) {
   const normalizedManager = normalizeManagerParameters(manager);
   finite(reviewQuality, "reviewQuality");
@@ -78,6 +77,6 @@ export function twoReviewEvaluation({
     intermediateScore,
     finalScore,
     totalScore: sumReviewScores([intermediateScore, finalScore]),
-    weightedScore: weightedTwoReviewScore(intermediateScore, finalScore, omega),
+    averageScore: (intermediateScore + finalScore) / 2,
   };
 }

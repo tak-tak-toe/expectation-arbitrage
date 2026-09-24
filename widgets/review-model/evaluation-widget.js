@@ -1,213 +1,155 @@
 import {
-  DEADLINE,
-  DEFAULT_WORKER,
-  DEFAULT_MANAGER,
-  oneTaskObjectives,
-  optimalReviewScoreTime,
-  optimalQualityReviewTime,
-  optimalAggregateReviewTime,
+  DEADLINE, DEFAULT_WORKER, DEFAULT_MANAGER, twoReviewObjectives,
+  optimalFinalizationTimeGivenIntermediate, optimalTwoReviewTimes,
 } from "./model.js";
 import {
-  htmlElement,
-  formatNumber,
-  setOutput,
-  createWidgetRoot,
-  createControls,
-  createMetrics,
-  createPanel,
-  createLegend,
-  sampleRange,
-  paddedDomain,
-  createFrame,
-  addPath,
-  addVerticalLine,
-  addCircle,
-  addDiamond,
-  mountResponsive,
+  htmlElement, svgElement, formatNumber, setOutput, createWidgetRoot,
+  createControls, createMetrics, createPanel, createLegend, sampleRange,
+  createFrame, addPath, addVerticalLine, addCircle, mountResponsive,
 } from "./widget-utils.js";
 
-const DEFAULTS = Object.freeze({
-  ...DEFAULT_WORKER,
-  ...DEFAULT_MANAGER,
-  omega: 0.5,
-});
-
+const DEFAULTS = Object.freeze({ ...DEFAULT_WORKER, ...DEFAULT_MANAGER });
 const CONTROLS = Object.freeze([
-  { key: "qInfinity", label: "品質上限 Q∞", min: 40, max: 100, step: 1, decimals: 0 },
-  { key: "kappa", label: "品質改善速度 κ", min: 0.05, max: 0.6, step: 0.01, decimals: 2 },
+  { key: "qInfinity", label: "基準品質曲線の漸近値 Q∞", min: 40, max: 100, step: 1, decimals: 0 },
+  { key: "kappa", label: "品質曲線の立ち上がり κ", min: 0.05, max: 0.6, step: 0.01, decimals: 2 },
   { key: "e0", label: "初期要求水準 E₀", min: 0, max: 80, step: 1, decimals: 0 },
   { key: "beta", label: "期待上昇率 β", min: 0, max: 20, step: 0.25, decimals: 2 },
-  { key: "rhoBar", label: "最大レビュー効果 ρ̄", min: 0, max: 1, step: 0.05, decimals: 2 },
-  { key: "lambda", label: "成熟速度 λ", min: 0.03, max: 1, step: 0.01, decimals: 2 },
-  { key: "omega", label: "最終レビューの重み ω", min: 0, max: 1, step: 0.05, decimals: 2 },
+  { key: "rhoBar", label: "レビュー有効度の上限 ρ̄", min: 0, max: 1, step: 0.05, decimals: 2 },
+  { key: "lambda", label: "レビュー材料の成熟速度 λ", min: 0.03, max: 1, step: 0.01, decimals: 2 },
 ]);
 
-function parameters(state) {
-  return {
-    worker: {
-      qInfinity: state.qInfinity,
-      kappa: state.kappa,
-      rhoBar: state.rhoBar,
-      lambda: state.lambda,
-    },
-    manager: { e0: state.e0, beta: state.beta },
-    deadline: DEADLINE,
-    omega: state.omega,
-  };
+function label(frame, text, x, y, anchor = "middle") {
+  const node = svgElement("text", { x: frame.xScale(x), y: frame.yScale(y),
+    "text-anchor": anchor, class: "mw-axis-title" });
+  node.textContent = text;
+  frame.overlay.append(node);
 }
 
-function drawPanel(instance, panel, state, optima, width) {
-  const config = parameters(state);
-  const points = sampleRange(DEADLINE).map(x => ({ x, ...oneTaskObjectives(x, config) }));
-  const intermediate = points.map(point => ({ x: point.x, y: point.intermediateScore }));
-  const final = points.map(point => ({ x: point.x, y: point.finalScore }));
-  const aggregate = points.map(point => ({ x: point.x, y: point.weightedScore }));
-  const frame = createFrame({
-    id: `${instance.id}-evaluation`,
-    width,
-    height: 250,
-    xDomain: [0, DEADLINE],
-    yDomain: paddedDomain([
-      ...intermediate.map(point => point.y),
-      ...final.map(point => point.y),
-      ...aggregate.map(point => point.y),
-    ]),
-    title: "中間レビュー評価、最終レビュー評価、総合評価",
-    description: "三つの目的が選ぶレビュー時刻を一つの座標上で比較する。",
-    xLabel: "中間レビュー時刻 x",
-    yLabel: "評価",
-  });
-  addPath(frame, intermediate, "mw-primary");
-  addPath(frame, final, "mw-accent");
-  addPath(frame, aggregate, "mw-secondary");
+/** Illustrative times define the schedule, not an optimized numerical example. */
+export function renderTwoReviewTimeline() {
+  const host = htmlElement("div", "mw-plots");
+  const cleanups = [];
+  mountResponsive(host, width => {
+    const frame = createFrame({
+      id: "two-review-timeline", width, height: 300,
+      xDomain: [0, DEADLINE], yDomain: [0, DEADLINE],
+      title: "中間レビューと最終化までの累積実作業時間",
+      description: "原点から最終化まで傾き1で作業し、最終化後は水平。中間レビューで作業時間は変化しない。",
+      xLabel: "実経過時間 t", yLabel: "累積実作業時間 w",
+    });
+    const t1 = 7, t2 = 16;
+    for (const t of [t1, t2, DEADLINE]) addVerticalLine(frame, t);
+    addPath(frame, [{ x: 0, y: 0 }, { x: t2, y: t2 }, { x: DEADLINE, y: t2 }], "mw-primary");
+    addCircle(frame, t1, t1);
+    addCircle(frame, t2, t2);
+    label(frame, "t₁：中間レビュー", t1, 23);
+    label(frame, "t₂：最終レビュー・最終化", t2, 20);
+    label(frame, "T：締切", DEADLINE, 11, "end");
+    host.replaceChildren(frame.svg);
+  }, cleanups);
+  host.dispose = () => cleanups.splice(0).forEach(cleanup => cleanup());
+  return host;
+}
 
-  const reviewTime = optima.review.reviewTime;
-  addVerticalLine(frame, reviewTime, "mw-muted");
-  addDiamond(frame, reviewTime, oneTaskObjectives(reviewTime, config).intermediateScore);
-  if (optima.quality.reviewTime !== null) {
-    const qualityTime = optima.quality.reviewTime;
-    addVerticalLine(frame, qualityTime, "mw-marker-accent");
-    addCircle(
-      frame,
-      qualityTime,
-      oneTaskObjectives(qualityTime, config).finalScore,
-      "mw-point-accent",
-    );
+// Regular display mesh only. The optimizer never reads these samples.
+export function evaluationHeatmap(parameters, divisions = 60) {
+  const cells = [];
+  const step = DEADLINE / divisions;
+  for (let i = 0; i < divisions; i++) for (let j = i; j < divisions; j++) {
+    const a = i * step, b = j * step;
+    const nextA = (i + 1) * step, nextB = (j + 1) * step;
+    const vertices = i === j
+      ? [[a, b], [a, nextB], [nextA, nextB]]
+      : [[a, b], [a, nextB], [nextA, nextB], [nextA, b]];
+    const t1 = vertices.reduce((sum, point) => sum + point[0], 0) / vertices.length;
+    const t2 = vertices.reduce((sum, point) => sum + point[1], 0) / vertices.length;
+    cells.push({ vertices, value: twoReviewObjectives(t1, t2, parameters).averageScore });
   }
-  if (optima.aggregate.reviewTime !== null) {
-    const aggregateTime = optima.aggregate.reviewTime;
-    addVerticalLine(frame, aggregateTime);
-    addCircle(
-      frame,
-      aggregateTime,
-      oneTaskObjectives(aggregateTime, config).weightedScore,
-    );
+  return cells;
+}
+
+function drawPanel(instance, panel, config, optimum, width) {
+  const frame = createFrame({
+    id: instance.id + "-evaluation", width, height: 380,
+    xDomain: [0, DEADLINE], yDomain: [0, DEADLINE],
+    title: "中間レビューと最終化の組合せによる総合評価",
+    description: "対角線より上が実行可能領域。濃い青緑ほど平均評価が高い。曲線は条件付き最適時刻、点は決定論的探索の最良候補。",
+    xLabel: "中間レビュー時刻 t₁", yLabel: "最終レビュー・最終化時刻 t₂",
+  });
+  const cells = evaluationHeatmap(config);
+  const low = Math.min(...cells.map(cell => cell.value));
+  const high = Math.max(...cells.map(cell => cell.value));
+  for (const cell of cells) {
+    const fraction = (cell.value - low) / (high - low || 1);
+    const rgb = [236 - 228 * fraction, 247 - 121 * fraction, 247 - 108 * fraction];
+    frame.background.append(svgElement("polygon", {
+      points: cell.vertices.map(([x, y]) => frame.xScale(x) + "," + frame.yScale(y)).join(" "),
+      fill: "rgb(" + rgb.map(Math.round).join(",") + ")",
+    }));
   }
+  addPath(frame, [{ x: 0, y: 0 }, { x: DEADLINE, y: DEADLINE }], "mw-muted");
+  addPath(frame, [{ x: 0, y: DEADLINE }, { x: DEADLINE, y: DEADLINE }], "mw-accent");
+  addPath(frame, sampleRange(DEADLINE).map(t1 => ({
+    x: t1, y: optimalFinalizationTimeGivenIntermediate(t1, config).t2,
+  })), "mw-secondary");
+  addCircle(frame, optimum.t1, optimum.t2, "mw-point-accent", 6);
+  label(frame, "t₂ < t₁：実行不能", 17, 4);
   panel.chart.replaceChildren(frame.svg);
+  return "色の範囲：J = " + formatNumber(low) + "（淡色）〜 " + formatNumber(high) + "（濃色）";
 }
 
 export function renderOverallEvaluationWidget(initial = {}) {
   const defaults = { ...DEFAULTS, ...initial };
   const state = { ...defaults };
   const instance = createWidgetRoot(
-    "三つの目的をつなぐ",
-    "中間レビュー評価、最終レビュー評価、両者を結ぶ重み付き総合評価を比較します。",
+    "中間レビューと最終化を同時に選ぶ",
+    "中間レビュー時刻 t₁ と最終化時刻 t₂ の組合せについて、二回のレビュー評価の平均を比較します。",
   );
   const controller = new AbortController();
   const cleanups = [() => controller.abort()];
-  let width = 680;
-  let render = () => {};
-
+  let width = 680, render = () => {};
   createControls(instance, state, defaults, CONTROLS, () => render(), controller.signal);
-  const { container: metricContainer, metrics } = createMetrics({
-    reviewOptimum: "レビュー時評価の最適時刻 xR*",
-    aggregateOptimum: "総合評価の最適時刻 xJ*",
-    weightedOptimum: "加重評価の最適時刻 xJ,ω*",
-    qualityOptimum: "最終品質の最適時刻 xQ*",
-    intermediateScore: "S₁(xJ,ω*)",
-    finalScore: "S₂(xJ,ω*)",
-    totalScore: "J(xJ,ω*) = S₁ + S₂",
-    weightedScore: "Jω(xJ,ω*)",
+  const { container, metrics } = createMetrics({
+    t1: "最適中間レビュー時刻 t₁*", t2: "最適最終化時刻 t₂*",
+    intermediateScore: "中間レビュー評価 S₁", finalScore: "最終レビュー評価 S₂",
+    averageScore: "総合評価 J", finalQuality: "最終品質 Q₂",
+    postReviewProductivity: "レビュー後の相対限界生産性 p₁⁺",
   });
-  instance.root.append(metricContainer);
-
+  instance.root.append(container);
   const plots = htmlElement("div", "mw-plots");
-  const panel = createPanel(
-    "レビュー時刻と三つの評価",
-    "ω = 0 は中間レビュー、ω = 1 は最終レビュー、ω = 0.5 は単純和と同じ最大点を与えます。",
-  );
+  const panel = createPanel("二つの時刻と総合評価", "濃い青緑ほど総合評価 J が高い組合せです。");
   panel.panel.append(createLegend([
-    ["mw-swatch-primary", "中間レビュー評価 S₁(x)"],
-    ["mw-swatch-accent", "最終レビュー評価 S₂(x)"],
-    ["mw-swatch-secondary", "重み付き総合評価 Jω(x)"],
-    ["mw-swatch-muted", "xR*"],
+    ["mw-swatch-secondary", "条件付き最適化曲線 t₂*(t₁)"],
+    ["mw-swatch-accent", "上辺：t₂ = T ／ 点：数値最適候補"],
+    ["mw-swatch-muted", "対角線：t₂ = t₁"],
   ]));
   plots.append(panel.panel);
   const details = htmlElement("div", "mw-details");
   instance.root.append(plots, details);
-
   render = () => {
-    const config = parameters(state);
-    const review = optimalReviewScoreTime(config);
-    const quality = optimalQualityReviewTime(config);
-    const aggregate = optimalAggregateReviewTime({ ...config, omega: 0.5 });
-    const weighted = state.omega === 0.5
-      ? aggregate
-      : optimalAggregateReviewTime(config);
-    const selected = weighted.reviewTime === null
-      ? null
-      : oneTaskObjectives(weighted.reviewTime, config);
-
-    setOutput(metrics.reviewOptimum.output, formatNumber(review.reviewTime));
-    setOutput(metrics.qualityOptimum.output,
-      quality.reviewTime === null ? `0–${DEADLINE}` : formatNumber(quality.reviewTime));
-    setOutput(metrics.aggregateOptimum.output,
-      aggregate.reviewTime === null ? `0–${DEADLINE}` : formatNumber(aggregate.reviewTime));
-    setOutput(metrics.weightedOptimum.output,
-      weighted.reviewTime === null ? `0–${DEADLINE}` : formatNumber(weighted.reviewTime));
-    setOutput(metrics.intermediateScore.output,
-      selected === null ? "全域" : formatNumber(selected.intermediateScore));
-    setOutput(metrics.finalScore.output,
-      selected === null ? "全域" : formatNumber(selected.finalScore));
-    setOutput(metrics.totalScore.output,
-      selected === null ? "全域" : formatNumber(selected.totalScore));
-    setOutput(metrics.weightedScore.output,
-      selected === null ? "全域" : formatNumber(selected.weightedScore));
-
-    const strictBracket = aggregate.reviewTime !== null
-      && quality.reviewTime !== null
-      && review.reviewTime < aggregate.reviewTime
-      && aggregate.reviewTime < quality.reviewTime;
-    if (strictBracket) {
-      instance.status.textContent = "三つの最適時刻が順に並ぶ設定";
-      instance.status.dataset.state = "interior";
-    } else if (weighted.reviewTime === null) {
-      instance.status.textContent = "総合評価が全時刻で同値";
-      instance.status.dataset.state = "boundary";
-    } else {
-      instance.status.textContent = "三つの目的の最大点を比較";
-      instance.status.dataset.state = "resolved";
+    const config = { ...state, deadline: DEADLINE };
+    const optimum = optimalTwoReviewTimes(config);
+    for (const key of Object.keys(metrics)) {
+      setOutput(metrics[key].output, formatNumber(key === "t1" || key === "t2"
+        ? optimum[key] : optimum.objectives[key]));
     }
-
-    const timingText = quality.reviewTime === null
-      ? `xR* = ${formatNumber(review.reviewTime)}、xJ* = ${aggregate.reviewTime === null ? `0–${DEADLINE}` : formatNumber(aggregate.reviewTime)}、xQ* の選択集合は 0–${DEADLINE} です。`
-      : `xR* = ${formatNumber(review.reviewTime)}、xJ* = ${formatNumber(aggregate.reviewTime)}、xQ* = ${formatNumber(quality.reviewTime)} です。`;
+    const status = {
+      "immediate-finalization": "中間レビュー直後に最終化",
+      "deadline-finalization": "締切で最終化", interior: "締切前に最終化（内点）",
+    }[optimum.conditional.status];
+    instance.status.textContent = status;
+    instance.status.dataset.state = optimum.conditional.status;
+    const colorText = drawPanel(instance, panel, config, optimum, width);
     details.replaceChildren(
-      htmlElement("p", undefined, timingText),
+      htmlElement("p", undefined, colorText),
       htmlElement("p", undefined,
-        `ω = ${formatNumber(state.omega)} は、中間レビュー評価へ ${formatNumber(1 - state.omega)}、最終レビュー評価へ ${formatNumber(state.omega)} の重みを与え、xJ,ω* = ${weighted.reviewTime === null ? `0–${DEADLINE}` : formatNumber(weighted.reviewTime)} を選びます。`),
+        "点は条件付き解析解と決定論的な1次元探索による最良候補です。大域最適性の証明は付していません。表示用格子から最適点を選んでいません。"
+        + (optimum.status === "tied" ? " 探索精度内で同値の候補が複数あります。" : "")
+        + (optimum.status === "indifferent" ? " 評価が探索精度内で一定のため代表点を表示しています。" : "")),
     );
-    drawPanel(instance, panel, state, { review, quality, aggregate: weighted }, width);
     instance.root.setAttribute("aria-busy", "false");
   };
-
-  mountResponsive(plots, nextWidth => {
-    width = nextWidth;
-    render();
-  }, cleanups);
-
-  instance.root.dispose = () => {
-    for (const cleanup of cleanups.splice(0)) cleanup();
-  };
+  mountResponsive(plots, nextWidth => { width = nextWidth; render(); }, cleanups);
+  instance.root.dispose = () => cleanups.splice(0).forEach(cleanup => cleanup());
   return instance.root;
 }

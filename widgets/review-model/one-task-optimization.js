@@ -50,10 +50,15 @@ export function normalizeOneTaskParameters(parameters = {}) {
     beta: parameters.beta ?? parameters.manager?.beta,
   });
   const deadline = parameters.deadline ?? DEADLINE;
-  const omega = parameters.omega ?? 0.5;
   finitePositive(deadline, "deadline");
+  return { worker, manager, deadline };
+}
+
+// Compatibility for the former fixed-deadline weighted model only.
+function normalizeLegacyAggregateParameters(parameters = {}) {
+  const omega = parameters.omega ?? 0.5;
   unitInterval(omega, "omega");
-  return { worker, manager, deadline, omega };
+  return { ...normalizeOneTaskParameters(parameters), omega };
 }
 
 function timeInHorizon(time, deadline, name = "time") {
@@ -61,6 +66,79 @@ function timeInHorizon(time, deadline, name = "time") {
   if (time > deadline) {
     throw new RangeError(`${name} must be at most deadline.`);
   }
+}
+
+/** Chapter 3: only the intermediate review restores productivity. */
+export function twoReviewObjectives(t1, t2, parameters = {}) {
+  const { worker, manager, deadline } = normalizeOneTaskParameters(parameters);
+  timeInHorizon(t1, deadline, "t1");
+  timeInHorizon(t2, deadline, "t2");
+  if (t1 > t2) throw new RangeError("t1 must be at most t2.");
+  const outcome = oneReviewOutcome(t1, t2 - t1, worker);
+  const evaluation = twoReviewEvaluation({
+    reviewQuality: outcome.reviewQuality, finalQuality: outcome.finalQuality,
+    reviewTime: t1, finalTime: t2, manager,
+  });
+  const centeredIntermediateScore = outcome.reviewQuality - manager.beta * t1;
+  const centeredFinalScore = outcome.finalQuality - manager.beta * t2;
+  return {
+    t1, t2, preReviewWork: t1, postReviewWork: t2 - t1,
+    reviewQuality: outcome.reviewQuality, finalQuality: outcome.finalQuality,
+    effectiveness: outcome.effectiveness,
+    preReviewProductivity: outcome.preReviewProductivity,
+    postReviewProductivity: outcome.postReviewProductivity,
+    ...evaluation, centeredIntermediateScore, centeredFinalScore,
+    centeredAverageScore: (centeredIntermediateScore + centeredFinalScore) / 2,
+    outcome,
+  };
+}
+
+export function optimalFinalizationTimeGivenIntermediate(t1, parameters = {}) {
+  const { worker, manager, deadline } = normalizeOneTaskParameters(parameters);
+  timeInHorizon(t1, deadline, "t1");
+  const { postReviewProductivity } = oneReviewOutcome(t1, 0, worker);
+  const m0 = worker.qInfinity * worker.kappa * postReviewProductivity;
+  const mT = m0 * Math.exp(-worker.kappa * (deadline - t1));
+  let t2, status;
+  if (manager.beta >= m0) {
+    t2 = t1; status = "immediate-finalization";
+  } else if (manager.beta <= mT) {
+    t2 = deadline; status = "deadline-finalization";
+  } else {
+    t2 = t1 + Math.log(m0 / manager.beta) / worker.kappa;
+    status = "interior";
+  }
+  t2 = Math.max(t1, Math.min(deadline, t2));
+  return {
+    t1, t2, status, postReviewProductivity,
+    marginalQualityAtStart: m0,
+    marginalQualityAtFinalization: m0 * Math.exp(-worker.kappa * (t2 - t1)),
+    expectationSlope: manager.beta,
+    diagnostics: { method: "analytic-conditional-finalization", globalCertificate: true, approximate: false },
+  };
+}
+
+export function optimalTwoReviewTimes(parameters = {}, options = {}) {
+  const normalized = normalizeOneTaskParameters(parameters);
+  const at = t1 => {
+    const conditional = optimalFinalizationTimeGivenIntermediate(t1, normalized);
+    return twoReviewObjectives(t1, conditional.t2, normalized);
+  };
+  const result = maximizeScalarDeterministic(
+    t1 => at(t1).centeredAverageScore, 0, normalized.deadline, options,
+  );
+  // A flat profile has no unique representative; preserve its diagnostics.
+  const t1 = result.bestTime ?? 0;
+  const conditional = optimalFinalizationTimeGivenIntermediate(t1, normalized);
+  return {
+    t1, t2: conditional.t2, status: result.status, objectives: at(t1), conditional,
+    maximizers: result.maximizers.map(candidate => {
+      const value = at(candidate.time);
+      return { t1: value.t1, t2: value.t2, value: value.averageScore };
+    }),
+    maximizingInterval: result.maximizingInterval,
+    diagnostics: { ...result.diagnostics, conditionalMethod: conditional.diagnostics.method },
+  };
 }
 
 /** Chapter 1 objective S(tau) = Phi(tau) - E(tau). */
@@ -195,9 +273,9 @@ export function optimalQualityReviewTime(parameters = {}, options = {}) {
   };
 }
 
-/** Chapter 3 component scores at a candidate intermediate-review time. */
+/** Legacy fixed-deadline component scores (compatibility only). */
 export function oneTaskObjectives(reviewTime, parameters = {}) {
-  const { worker, manager, deadline, omega } = normalizeOneTaskParameters(parameters);
+  const { worker, manager, deadline, omega } = normalizeLegacyAggregateParameters(parameters);
   timeInHorizon(reviewTime, deadline, "reviewTime");
   const outcome = oneReviewOutcome(reviewTime, deadline - reviewTime, worker);
   const evaluation = twoReviewEvaluation({
@@ -206,7 +284,6 @@ export function oneTaskObjectives(reviewTime, parameters = {}) {
     reviewTime,
     finalTime: deadline,
     manager,
-    omega,
   });
   const centeredIntermediateScore = outcome.reviewQuality - manager.beta * reviewTime;
   const centeredFinalScore = outcome.finalQuality - manager.beta * deadline;
@@ -217,6 +294,7 @@ export function oneTaskObjectives(reviewTime, parameters = {}) {
     finalQuality: outcome.finalQuality,
     effectiveness: outcome.effectiveness,
     ...evaluation,
+    weightedScore: (1 - omega) * evaluation.intermediateScore + omega * evaluation.finalScore,
     centeredIntermediateScore,
     centeredFinalScore,
     centeredTotalScore: centeredIntermediateScore + centeredFinalScore,
@@ -416,9 +494,9 @@ function exactAggregateResult(reviewTime, status, uniqueness, diagnostics, param
   };
 }
 
-/** Chapter 3 weighted aggregate optimum. */
+/** Legacy fixed-deadline weighted aggregate optimum (compatibility only). */
 export function optimalAggregateReviewTime(parameters = {}, options = {}) {
-  const normalized = normalizeOneTaskParameters(parameters);
+  const normalized = normalizeLegacyAggregateParameters(parameters);
   const normalizedParameters = normalized;
   const reviewOptimum = optimalReviewScoreTime(normalizedParameters);
   const qualityOptimum = optimalQualityReviewTime(normalizedParameters, options.qualityOptions);

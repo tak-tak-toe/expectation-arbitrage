@@ -33,6 +33,9 @@ export {
 
 export {
   normalizeOneTaskParameters,
+  twoReviewObjectives,
+  optimalFinalizationTimeGivenIntermediate,
+  optimalTwoReviewTimes,
   reviewScoreAtTime,
   optimalReviewScoreTime,
   qualityGainLogDerivative,

@@ -246,12 +246,11 @@ test("expectation, individual scores, sums, and weighted scores use the new nota
     reviewTime: 10,
     finalTime: 25,
     manager: DEFAULT_MANAGER,
-    omega: 0.25,
   });
   close(evaluation.intermediateScore, 15);
   close(evaluation.finalScore, 25);
   close(evaluation.totalScore, 40);
-  close(evaluation.weightedScore, 17.5);
+  close(evaluation.averageScore, 20);
 });
 
 test("Chapter 1 analytic interior optimum agrees with deterministic maximization", () => {
@@ -350,7 +349,7 @@ test("rhoBar zero makes every Chapter 2 review time quality-indifferent", () => 
   }
 });
 
-test("Chapter 3 reports component scores and sum/weighted identities", () => {
+test("legacy fixed-deadline model preserves sum/weighted identities", () => {
   const objectives = oneTaskObjectives(10, { ...DEFAULT_PARAMETERS, omega: 0.5 });
   close(objectives.intermediateScore,
     objectives.reviewQuality - expectation(10));
@@ -363,7 +362,7 @@ test("Chapter 3 reports component scores and sum/weighted identities", () => {
     2 * DEFAULT_MANAGER.e0);
 });
 
-test("Chapter 3 omega endpoints reproduce Chapters 1 and 2", () => {
+test("legacy omega endpoints reproduce Chapters 1 and 2", () => {
   const reviewOnly = optimalAggregateReviewTime({ ...DEFAULT_PARAMETERS, omega: 0 });
   const qualityOnly = optimalAggregateReviewTime({ ...DEFAULT_PARAMETERS, omega: 1 });
   close(reviewOnly.reviewTime,
@@ -411,7 +410,7 @@ test("the default aggregate optimum lies strictly between the two component opti
   close(result.qualityOptimum.reviewTime, 13.82416065241048, 2e-9);
 });
 
-test("E0 shifts Chapter 3 scores without moving the aggregate optimum", () => {
+test("E0 shifts legacy scores without moving the aggregate optimum", () => {
   const low = optimalAggregateReviewTime({ ...DEFAULT_PARAMETERS, e0: 0 }, {
     gridPoints: 1201,
   });
